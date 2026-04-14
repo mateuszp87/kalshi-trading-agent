@@ -15,8 +15,8 @@ class AgentConfig:
     dry_run: bool = True
     scan_interval_min: int = 900
     scan_interval_max: int = 1800
-    max_bet_size: float = 10.0
-    max_open_positions: int = 10
+    max_bet_size: float = 5.0
+    max_open_positions: int = 25
     buy_threshold: float = 0.72
     sell_threshold: float = 0.28
     max_daily_loss: float = 100.0
