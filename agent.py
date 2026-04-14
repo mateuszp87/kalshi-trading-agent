@@ -183,7 +183,11 @@ class KalshiTradingAgent:
 
             # Rotate through keywords for this category
             # Use liquid series tickers directly instead of keyword search
+            # Smart category routing — weather series get weather signals regardless of category
             series_list = LIQUID_SERIES.get(category, [])
+            # Override: KXHIGHNY and RAINNY always use weather fetcher
+            weather_series = ["KXHIGHNY", "RAINNY"]
+            sports_series = ["KXNBA", "KXNBAEAST", "KXNBAWEST", "KXMLB", "KXMLBWINS-NYY", "KXMLBWINS-LAD", "KXMLBWINS-BOS", "KXMLBWINS-HOU", "KXPGAR1LEAD"]
             if series_list:
                 markets = await client.get_series_markets(series_list, limit=10)
             else:
@@ -250,9 +254,9 @@ class KalshiTradingAgent:
             self.stats.trades_skipped += 1
             return
 
-        if signal.action == "buy_yes" and market.mid_price >= self.config.buy_threshold:
+        if signal.action == "buy_yes" and signal.edge >= 0.04:
             await self._execute_trade(client, market, "yes", signal)
-        elif signal.action == "buy_no" and market.mid_price <= self.config.sell_threshold:
+        elif signal.action == "buy_no" and signal.edge <= -0.04:
             await self._execute_trade(client, market, "no", signal)
         else:
             log.info(f"  → SKIP (market price {market.mid_price:.2f} doesn't meet threshold)")

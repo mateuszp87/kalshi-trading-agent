@@ -38,7 +38,7 @@ Rules:
 - Account for base rates and historical accuracy of each signal type.
 - If signals conflict, explain why and discount both.
 - Your probability estimate should be your honest best guess, NOT anchored to the market price.
-- Only recommend a trade when |estimated_prob - market_price| > 0.05 (5 cent edge minimum).
+- Only recommend a trade when |estimated_prob - market_price| > 0.04 (4 cent edge minimum).
 
 Respond ONLY with valid JSON in this exact format:
 {
