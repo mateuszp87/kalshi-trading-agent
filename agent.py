@@ -143,8 +143,8 @@ class KalshiTradingAgent:
 
             log.info(f"  Found {len(markets)} markets. Scoring top {min(3, len(markets))}...")
 
-            # Filter out multi-leg parlay markets
-            markets = [m for m in markets if not any(x in m.ticker for x in ['KXMVECROSSCATEGORY', 'KXMVESPORTSMULTIGAME'])]
+            # Filter out multi-leg parlay markets by title content
+            markets = [m for m in markets if m.title.count(',') < 3]
             if not markets:
                 log.info(f"  No single-outcome markets found for keyword='{keyword}'")
                 continue
