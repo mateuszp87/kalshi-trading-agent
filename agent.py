@@ -135,7 +135,7 @@ class KalshiTradingAgent:
 
             # Rotate through keywords for this category
             keyword = cat_cfg["keywords"][self.stats.markets_scanned % len(cat_cfg["keywords"])]
-            markets = await client.get_markets(keyword=keyword, limit=10)
+            markets = await client.get_markets(keyword=keyword, limit=25)
 
             if not markets:
                 log.info(f"  No markets found for keyword='{keyword}'")
@@ -143,13 +143,7 @@ class KalshiTradingAgent:
 
             log.info(f"  Found {len(markets)} markets. Scoring top {min(3, len(markets))}...")
 
-            # Filter out multi-leg parlay markets by title content
-            markets = [m for m in markets if m.title.count(',') < 3]
-            if not markets:
-                log.info(f"  No single-outcome markets found for keyword='{keyword}'")
-                continue
-            log.info(f"  {len(markets)} single-outcome markets after filtering.")
-            for market in markets[:3]:
+            for market in markets[:5]:
                 self.stats.markets_scanned += 1
                 await self._evaluate_market(client, market, category, cat_cfg)
                 await asyncio.sleep(1)  # rate limit Claude calls
