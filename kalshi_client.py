@@ -186,6 +186,35 @@ class KalshiClient:
             log.error(f"Order failed ({ticker} {side} @{yes_price}): {e}")
             return None
 
+    async def get_events(self, limit: int = 25) -> list[KalshiMarket]:
+        """Fetch events — returns clean single-outcome markets."""
+        try:
+            data = await self._get('/events', params={'limit': limit, 'status': 'open'})
+            markets = []
+            for event in data.get('events', []):
+                for market in event.get('markets', []):
+                    yes_bid = _parse_price(market.get('yes_bid') or 0.5)
+                    yes_ask = _parse_price(market.get('yes_ask') or 0.5)
+                    title = market.get('title', event.get('title', ''))
+                    markets.append(KalshiMarket(
+                        ticker=market.get('ticker', ''),
+                        title=title,
+                        category=event.get('category', ''),
+                        yes_bid=yes_bid,
+                        yes_ask=yes_ask,
+                        no_bid=round(1 - yes_ask, 4),
+                        no_ask=round(1 - yes_bid, 4),
+                        volume=int(market.get('volume', 0) or 0),
+                        open_interest=int(market.get('open_interest', 0) or 0),
+                        close_time=market.get('close_time', ''),
+                        status=market.get('status', 'open'),
+                    ))
+            log.info(f'Fetched {len(markets)} event markets')
+            return markets
+        except Exception as e:
+            log.error(f'Error fetching events: {e}')
+            return []
+
     async def get_positions(self) -> list[dict]:
         try:
             data = await self._get("/portfolio/positions")
