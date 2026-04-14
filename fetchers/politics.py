@@ -107,7 +107,10 @@ async def _fetch_polymarket(session: aiohttp.ClientSession, query: str) -> dict:
                 return {}
             m = markets[0]
             prices = m.get("outcomePrices", ["0.5", "0.5"])
-            yes_price = float(prices[0]) if prices else 0.5
+            if isinstance(prices, list) and len(prices) > 0:
+                yes_price = float(prices[0])
+            else:
+                yes_price = 0.5
             return {
                 "yes_price": round(yes_price, 3),
                 "question": m.get("question", ""),

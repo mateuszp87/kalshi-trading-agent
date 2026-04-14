@@ -204,7 +204,11 @@ async def _fetch_polymarket_sports(session: aiohttp.ClientSession, title: str) -
             if not data:
                 return {}
             market = data[0]
-            price = float(market.get("lastTradePrice", market.get("outcomePrices", ["0.5"])[0]))
+            prices = market.get("outcomePrices", ["0.5"])
+            if isinstance(prices, list) and len(prices) > 0:
+                price = float(prices[0])
+            else:
+                price = float(market.get("lastTradePrice", 0.5))
             return {
                 "price": round(price, 3),
                 "market_title": market.get("question", ""),
