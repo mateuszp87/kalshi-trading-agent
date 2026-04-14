@@ -32,13 +32,13 @@ CATEGORY_CONFIG = {
         "config_key": "espn_api_key",
     },
     "politics": {
-        "keywords": ["Trump approve", "Senate majority", "government shutdown", "Supreme Court", "tariff", "executive order", "Congress pass", "veto", "recession 2026", "rate cut"],
+        "keywords": ["election", "Senate", "Congress", "president", "governor", "vote", "bill", "legislation", "Supreme Court", "Biden", "Trump"],
         "fetcher": fetch_politics_signals,
         "fetcher_key_arg": "newsapi_key",
         "config_key": "newsapi_key",
     },
     "econ": {
-        "keywords": ["Fed rate", "rate cut", "rate hike", "CPI above", "inflation above", "unemployment above", "GDP growth", "recession 2026", "FOMC decision", "interest rate"],
+        "keywords": ["Fed", "CPI", "inflation", "GDP", "unemployment", "interest rate", "recession", "Treasury", "FOMC", "economy"],
         "fetcher": fetch_econ_signals,
         "fetcher_key_arg": "fred_api_key",
         "config_key": "fred_api_key",
@@ -50,7 +50,7 @@ CATEGORY_CONFIG = {
         "config_key": "newsapi_key",
     },
     "crypto": {
-        "keywords": ["Bitcoin above", "Bitcoin below", "BTC price", "Ethereum above", "ETH price", "crypto ETF", "Bitcoin ETF", "Solana above", "crypto market cap", "altcoin season"],
+        "keywords": ["Bitcoin", "BTC", "Ethereum", "ETH", "crypto", "Solana", "SOL", "blockchain", "ETF", "Coinbase"],
         "fetcher": fetch_crypto_signals,
         "fetcher_key_arg": "coingecko_api_key",
         "config_key": "coingecko_api_key",

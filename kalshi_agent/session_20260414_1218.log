@@ -1,0 +1,196 @@
+12:18:08 [INFO] agent: Starting Kalshi Trading Agent...
+12:18:08 [INFO] agent: Categories: ['sports', 'politics', 'econ', 'entertainment', 'crypto', 'weather']
+12:18:08 [INFO] kalshi_client: Loaded RSA private key from /Users/mateusz/Desktop/kalshi_agent/kalshi-private.key
+12:18:08 [INFO] agent: Account balance: $25.31
+12:18:08 [INFO] agent: ============================================================
+12:18:08 [INFO] agent: SCAN CYCLE — 2026-04-14 19:18:08 UTC
+12:18:08 [INFO] agent: ============================================================
+12:18:08 [INFO] agent: 
+[SPORTS] Fetching markets...
+12:18:09 [INFO] kalshi_client: Fetched 10 markets (keyword='will')
+12:18:09 [INFO] agent:   Found 10 markets. Scoring top 3...
+12:18:09 [INFO] agent: 
+  Market: yes Atlanta,yes Tampa Bay,yes Milwaukee,yes Cleveland,yes Houston,yes 
+12:18:09 [INFO] agent:   Ticker: KXMVESPORTSMULTIGAMEEXTENDED-S2026A2457A819BC-62C67256AC4 | Mid: 0.50 | Vol: 0
+12:18:09 [INFO] agent:   Signals gathered: ['vegas_implied_prob', 'injury_report', 'team_momentum', 'polymarket_price']
+12:18:14 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:18:14 [INFO] agent:   Claude: estimated_prob=0.50 | edge=+0.00 | action=skip
+12:18:14 [INFO] agent:   Reasoning: The signals provided are completely irrelevant to this multi-game MLB parlay market. Basketball injury reports, NBA team momentum, and geopolitical betting markets have zero predictive value for baseball outcomes involving 8 specific MLB teams.
+12:18:14 [INFO] agent:   → SKIP (Claude recommends no trade)
+12:18:15 [INFO] agent: 
+  Market: yes Yes,yes Yes,yes Yes,yes Yes,yes Yes,yes Yes,yes Yes,yes Yes,yes Ye
+12:18:15 [INFO] agent:   Ticker: KXMVESPORTSMULTIGAMEEXTENDED-S2026ADF828EBC94-ACF8AA146B8 | Mid: 0.50 | Vol: 0
+12:18:16 [INFO] agent:   Signals gathered: ['vegas_implied_prob', 'injury_report', 'team_momentum', 'polymarket_price']
+12:18:20 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:18:20 [INFO] agent:   Claude: estimated_prob=0.50 | edge=+0.00 | action=skip
+12:18:20 [INFO] agent:   Reasoning: The signals are completely mismatched to the market question. Vegas odds for Charlotte Hornets vs Miami Heat and NBA injury reports are irrelevant to what appears to be an esports market. The Polymarket signal about Russia-Ukraine ceasefire is also unrelated. Without relevant signals, I default to the market price with very low confidence.
+12:18:20 [INFO] agent:   → SKIP (Claude recommends no trade)
+12:18:21 [INFO] agent: 
+  Market: no Over 3.5 goals scored,no Over 2.5 goals scored,yes Hailey Baptiste
+12:18:21 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S2026BB5BFDA7F72-BDEEF6434C8 | Mid: 0.50 | Vol: 0
+12:18:22 [INFO] agent:   Signals gathered: ['vegas_implied_prob', 'injury_report', 'team_momentum', 'polymarket_price']
+12:18:26 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:18:26 [INFO] agent:   Claude: estimated_prob=0.50 | edge=+0.00 | action=skip
+12:18:26 [INFO] agent:   Reasoning: The signals are completely irrelevant to this market. Vegas odds are for NBA games, injury reports are for NBA players, and Polymarket data is about geopolitics. Without relevant data about Hailey Baptiste or the actual event this market refers to, I cannot make an informed probability estimate.
+12:18:26 [INFO] agent:   → SKIP (Claude recommends no trade)
+12:18:27 [INFO] agent: 
+[POLITICS] Fetching markets...
+12:18:27 [INFO] kalshi_client: Fetched 10 markets (keyword='president')
+12:18:27 [INFO] agent:   Found 10 markets. Scoring top 3...
+12:18:27 [INFO] agent: 
+  Market: yes Alex Bregman: 1+,yes Mitch Keller: 7+,yes Kevin Gausman: 9+
+12:18:27 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S2026DE30E518570-D52A59D0ED4 | Mid: 0.50 | Vol: 0
+12:18:28 [WARNING] fetchers.politics: Polymarket fetch failed: could not convert string to float: '['
+12:18:30 [WARNING] fetchers.politics: Polling fetch failed: 200, message='Attempt to decode JSON with unexpected mimetype: text/html; charset=utf-8', url='https://abcnews.com/politics'
+12:18:30 [WARNING] agent:   No signals gathered — Claude will reason from market title only.
+12:18:36 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:18:36 [INFO] agent:   Claude: estimated_prob=0.50 | edge=+0.00 | action=skip
+12:18:36 [INFO] agent:   Reasoning: This appears to be a complex multi-leg sports betting market involving baseball players (Bregman hits, Keller strikeouts, Gausman strikeouts) but is miscategorized as 'politics'. With no external signals, zero volume/open interest, and unclear resolution criteria, there's insufficient information to estimate true probability beyond the uninformed market mid of 50%.
+12:18:36 [INFO] agent:   → SKIP (Claude recommends no trade)
+12:18:37 [INFO] agent: 
+  Market: yes Over 12.5 runs scored,yes Over 12.5 runs scored,yes Over 12.5 runs
+12:18:37 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S20261E4E37138AB-1C26833CB3C | Mid: 0.50 | Vol: 0
+12:18:37 [WARNING] fetchers.politics: Polymarket fetch failed: could not convert string to float: '['
+12:18:38 [WARNING] fetchers.politics: Polling fetch failed: 200, message='Attempt to decode JSON with unexpected mimetype: text/html; charset=utf-8', url='https://abcnews.com/politics'
+12:18:38 [WARNING] agent:   No signals gathered — Claude will reason from market title only.
+12:18:41 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:18:41 [INFO] agent:   Claude: estimated_prob=0.50 | edge=+0.00 | action=skip
+12:18:41 [INFO] agent:   Reasoning: No external signals available and market description appears corrupted or incomplete. Cannot identify the actual event being predicted. Zero volume and open interest suggests market may be inactive or misconfigured.
+12:18:41 [INFO] agent:   → SKIP (Claude recommends no trade)
+12:18:42 [INFO] agent: 
+  Market: yes Rafael Devers: 1+,yes Oneil Cruz: 1+,yes James Wood: 1+,yes Aaron 
+12:18:42 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S2026394F42782C1-523999E8114 | Mid: 0.50 | Vol: 0
+12:18:42 [WARNING] fetchers.politics: Polymarket fetch failed: could not convert string to float: '['
+12:18:43 [WARNING] fetchers.politics: Polling fetch failed: 200, message='Attempt to decode JSON with unexpected mimetype: text/html; charset=utf-8', url='https://abcnews.com/politics'
+12:18:43 [WARNING] agent:   No signals gathered — Claude will reason from market title only.
+12:18:47 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:18:47 [INFO] agent:   Claude: estimated_prob=0.50 | edge=+0.00 | action=skip
+12:18:47 [INFO] agent:   Reasoning: This appears to be a baseball prop bet requiring multiple players to achieve 1+ of some statistic, but the market description is unclear and there are no external signals available. Without knowing the specific statistic, timeframe, or having any relevant data, I cannot meaningfully estimate probabilities different from the uninformative market price.
+12:18:47 [INFO] agent:   → SKIP (Claude recommends no trade)
+12:18:48 [INFO] agent: 
+[ECON] Fetching markets...
+12:18:48 [INFO] kalshi_client: Fetched 10 markets (keyword='recession')
+12:18:48 [INFO] agent:   Found 10 markets. Scoring top 3...
+12:18:48 [INFO] agent: 
+  Market: yes Alex Bregman: 1+,yes Mitch Keller: 7+,yes Kevin Gausman: 9+
+12:18:48 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S2026DE30E518570-D52A59D0ED4 | Mid: 0.50 | Vol: 0
+12:18:51 [INFO] agent:   Signals gathered: ['cme_fedwatch', 'cpi_trend', 'unemployment_rate', 'gdp_growth', 'treasury_10y']
+12:18:56 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:18:56 [INFO] agent:   Claude: estimated_prob=0.42 | edge=-0.08 | action=buy_no
+12:18:56 [INFO] agent:   Reasoning: Multiple economic indicators point away from rate cuts: CPI at 3.29% (well above 2% target), unemployment falling to 4.3%, and strong GDP growth at 8.64% annualized. CME FedWatch at 45% aligns with this dovish outlook, creating an 8% edge against the 50% market price.
+12:18:56 [INFO] agent:   → SKIP (market price 0.50 doesn't meet threshold)
+12:18:57 [INFO] agent: 
+  Market: yes Over 12.5 runs scored,yes Over 12.5 runs scored,yes Over 12.5 runs
+12:18:57 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S20261E4E37138AB-1C26833CB3C | Mid: 0.50 | Vol: 0
+12:18:58 [INFO] agent:   Signals gathered: ['cme_fedwatch', 'cpi_trend', 'unemployment_rate', 'gdp_growth', 'treasury_10y']
+12:19:04 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:19:04 [INFO] agent:   Claude: estimated_prob=0.25 | edge=-0.25 | action=buy_no
+12:19:04 [INFO] agent:   Reasoning: The market question appears garbled/corrupted ('yes Over 12.5 runs scored' repeated 5x), but the ticker suggests an economics category market. All economic indicators point to a strong economy with rising GDP, falling unemployment, and controlled inflation - making a negative economic outcome (implied by betting against) unlikely.
+12:19:04 [INFO] agent:   → SKIP (market price 0.50 doesn't meet threshold)
+12:19:05 [INFO] agent: 
+  Market: yes Rafael Devers: 1+,yes Oneil Cruz: 1+,yes James Wood: 1+,yes Aaron 
+12:19:05 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S2026394F42782C1-523999E8114 | Mid: 0.50 | Vol: 0
+12:19:08 [INFO] agent:   Signals gathered: ['cme_fedwatch', 'cpi_trend', 'unemployment_rate', 'gdp_growth', 'treasury_10y']
+12:19:18 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:19:18 [ERROR] reasoner: Claude scoring failed for KXMVECROSSCATEGORY-S2026394F42782C1-523999E8114: Expecting value: line 1 column 1 (char 0)
+12:19:18 [WARNING] agent:   Claude scoring returned None.
+12:19:19 [INFO] agent: 
+[ENTERTAINMENT] Fetching markets...
+12:19:19 [INFO] kalshi_client: Fetched 10 markets (keyword='award')
+12:19:19 [INFO] agent:   Found 10 markets. Scoring top 3...
+12:19:19 [INFO] agent: 
+  Market: yes Bryce Harper: 1+,yes Kyle Schwarber: 1+,yes Trea Turner: 1+,yes Bo
+12:19:19 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S2026485D4C89400-DC7940C8231 | Mid: 0.50 | Vol: 0
+12:19:20 [WARNING] fetchers.other: Polymarket fetch failed: could not convert string to float: '['
+12:19:20 [INFO] agent:   Signals gathered: ['media_buzz']
+12:19:24 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:19:24 [INFO] agent:   Claude: estimated_prob=0.15 | edge=-0.35 | action=buy_no
+12:19:24 [INFO] agent:   Reasoning: This appears to be a complex multi-leg bet requiring ALL 8 star players to achieve 1+ of some metric. The probability of 8 independent events all occurring is extremely low - even if each player had a 70% chance individually, the combined probability would be only 5.8%.
+12:19:24 [INFO] agent:   → SKIP (market price 0.50 doesn't meet threshold)
+12:19:25 [INFO] agent: 
+  Market: yes LaMelo Ball: 2+,yes Tyler Herro: 1+,yes LaMelo Ball: 4+,yes Tyler 
+12:19:25 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S2026E0189E24389-B83DDC66739 | Mid: 0.50 | Vol: 0
+12:19:26 [WARNING] fetchers.other: Polymarket fetch failed: could not convert string to float: '['
+12:19:26 [INFO] agent:   Signals gathered: ['media_buzz']
+12:19:31 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:19:31 [INFO] agent:   Claude: estimated_prob=0.15 | edge=-0.35 | action=buy_no
+12:19:31 [INFO] agent:   Reasoning: This appears to be a complex multi-player basketball statistical parlay requiring specific 3-point and assist combinations. Zero media buzz suggests low public attention/information flow. Complex parlays typically have much lower success rates than 50%, and the current market price appears significantly overvalued.
+12:19:31 [INFO] agent:   → SKIP (market price 0.50 doesn't meet threshold)
+12:19:32 [INFO] agent: 
+  Market: yes Phoenix,no Charlotte wins by over 6.5 points,no Over 230.5 points 
+12:19:32 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S2026AAD96A0710E-5D215A03405 | Mid: 0.50 | Vol: 0
+12:19:33 [WARNING] fetchers.other: Polymarket fetch failed: could not convert string to float: '['
+12:19:33 [INFO] agent:   Signals gathered: ['media_buzz']
+12:19:38 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:19:38 [INFO] agent:   Claude: estimated_prob=0.50 | edge=+0.00 | action=skip
+12:19:38 [INFO] agent:   Reasoning: This appears to be a complex multi-condition sports betting market with insufficient data. With zero media coverage, no trading volume, and a market closing in 2026, there's no reliable information to deviate from the market's 50% implied probability. The lack of sports data, team performance metrics, or other relevant signals makes any prediction highly speculative.
+12:19:38 [INFO] agent:   → SKIP (Claude recommends no trade)
+12:19:39 [INFO] agent: 
+[CRYPTO] Fetching markets...
+12:19:39 [INFO] kalshi_client: Fetched 10 markets (keyword='Ethereum')
+12:19:39 [INFO] agent:   Found 10 markets. Scoring top 3...
+12:19:39 [INFO] agent: 
+  Market: yes Boston,yes Over 4.5 runs scored
+12:19:39 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S202691BE691C2D7-0D5147C7632 | Mid: 0.50 | Vol: 0
+12:19:40 [WARNING] fetchers.other: Polymarket fetch failed: could not convert string to float: '['
+12:19:40 [INFO] agent:   Signals gathered: ['price_momentum_7d', 'market_cap_rank', 'fear_greed_index', 'exchange_volume_ratio']
+12:19:47 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:19:47 [ERROR] reasoner: Claude scoring failed for KXMVECROSSCATEGORY-S202691BE691C2D7-0D5147C7632: Expecting value: line 1 column 1 (char 0)
+12:19:47 [WARNING] agent:   Claude scoring returned None.
+12:19:48 [INFO] agent: 
+  Market: yes Brandon Miller: 15+,yes Kon Knueppel: 15+,yes Deni Avdija: 15+,yes
+12:19:48 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S2026D7A52651D2D-60D783DB01D | Mid: 0.50 | Vol: 0
+12:19:49 [WARNING] fetchers.other: Polymarket fetch failed: could not convert string to float: '['
+12:19:49 [INFO] agent:   Signals gathered: ['price_momentum_7d', 'market_cap_rank', 'fear_greed_index', 'exchange_volume_ratio']
+12:19:53 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:19:53 [INFO] agent:   Claude: estimated_prob=0.35 | edge=-0.15 | action=buy_no
+12:19:53 [INFO] agent:   Reasoning: The market description appears to reference basketball player performance stats rather than crypto outcomes, creating significant confusion about what this market actually resolves on. The crypto signals show mixed conditions (strong BTC momentum but extreme fear sentiment), but without clarity on resolution criteria, I'm discounting the probability significantly below the 50% market price.
+12:19:53 [INFO] agent:   → SKIP (market price 0.50 doesn't meet threshold)
+12:19:54 [INFO] agent: 
+  Market: yes LaMelo Ball: 3+,yes Jrue Holiday: 4+,yes Charlotte,yes Portland,ye
+12:19:54 [INFO] agent:   Ticker: KXMVESPORTSMULTIGAMEEXTENDED-S2026836CB30AB92-C69D162DA9F | Mid: 0.50 | Vol: 0
+12:19:55 [WARNING] fetchers.other: Polymarket fetch failed: could not convert string to float: '['
+12:19:55 [INFO] agent:   Signals gathered: ['price_momentum_7d', 'market_cap_rank', 'fear_greed_index', 'exchange_volume_ratio']
+12:20:05 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:20:05 [ERROR] reasoner: Claude scoring failed for KXMVESPORTSMULTIGAMEEXTENDED-S2026836CB30AB92-C69D162DA9F: Expecting value: line 1 column 1 (char 0)
+12:20:05 [WARNING] agent:   Claude scoring returned None.
+12:20:06 [INFO] agent: 
+[WEATHER] Fetching markets...
+12:20:07 [INFO] kalshi_client: Fetched 10 markets (keyword='flood')
+12:20:07 [INFO] agent:   Found 10 markets. Scoring top 3...
+12:20:07 [INFO] agent: 
+  Market: yes Coby White: 15+,yes LaMelo Ball: 20+,yes Tyler Herro: 20+,yes LaMe
+12:20:07 [INFO] agent:   Ticker: KXMVESPORTSMULTIGAMEEXTENDED-S2026992BC07DC85-0E75ED5D868 | Mid: 0.50 | Vol: 0
+12:20:12 [WARNING] fetchers.other: Ensemble forecast failed: '>' not supported between instances of 'NoneType' and 'float'
+12:20:12 [INFO] agent:   Signals gathered: ['nws_forecast', 'historical_base_rate', 'current_conditions']
+12:20:17 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:20:17 [INFO] agent:   Claude: estimated_prob=0.02 | edge=-0.48 | action=buy_no
+12:20:17 [INFO] agent:   Reasoning: This appears to be a misclassified sports betting market in the weather category. The market description mentions basketball players (Coby White, LaMelo Ball, Tyler Herro) and Miami team performance, not weather events. All weather signals show minimal severe weather risk (0% NWS forecast, 10% historical base rate, normal conditions).
+12:20:17 [INFO] agent:   → SKIP (market price 0.50 doesn't meet threshold)
+12:20:18 [INFO] agent: 
+  Market: no Over 6.5 goals scored,no Over 6.5 goals scored,no Over 6.5 goals sc
+12:20:18 [INFO] agent:   Ticker: KXMVESPORTSMULTIGAMEEXTENDED-S20267B495385C5B-60E055FF4F7 | Mid: 0.50 | Vol: 0
+12:20:21 [WARNING] fetchers.other: Ensemble forecast failed: '>' not supported between instances of 'NoneType' and 'float'
+12:20:21 [INFO] agent:   Signals gathered: ['nws_forecast', 'historical_base_rate', 'current_conditions']
+12:20:27 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:20:27 [ERROR] reasoner: Claude scoring failed for KXMVESPORTSMULTIGAMEEXTENDED-S20267B495385C5B-60E055FF4F7: Expecting value: line 1 column 1 (char 0)
+12:20:27 [WARNING] agent:   Claude scoring returned None.
+12:20:28 [INFO] agent: 
+  Market: yes Charlotte,yes Miles Bridges: 10+,yes Bam Adebayo: 15+,yes Deni Avd
+12:20:28 [INFO] agent:   Ticker: KXMVECROSSCATEGORY-S2026C8B93F3C242-7B74923A50C | Mid: 0.50 | Vol: 0
+12:20:31 [WARNING] fetchers.other: Ensemble forecast failed: '>' not supported between instances of 'NoneType' and 'float'
+12:20:31 [INFO] agent:   Signals gathered: ['nws_forecast', 'historical_base_rate', 'current_conditions']
+12:20:35 [INFO] httpx: HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+12:20:35 [INFO] agent:   Claude: estimated_prob=0.12 | edge=-0.38 | action=buy_no
+12:20:35 [INFO] agent:   Reasoning: All weather signals point to low probability (10-15%) while market is priced at 50%. NWS forecasts sunny conditions, historical base rate shows 10% for severe weather, and current anomaly score of 0.68 isn't extreme enough to justify 50% odds.
+12:20:35 [INFO] agent:   → SKIP (market price 0.50 doesn't meet threshold)
+12:20:36 [INFO] agent: 
+── Session Stats ──────────────────────────────
+12:20:36 [INFO] agent:   Markets scanned : 18
+12:20:36 [INFO] agent:   Trades placed   : 0
+12:20:36 [INFO] agent:   Trades skipped  : 14
+12:20:36 [INFO] agent:   Open positions  : 0/10
+12:20:36 [INFO] agent:   Daily P&L       : $+0.00
+12:20:36 [INFO] agent: ───────────────────────────────────────────────
+
+12:20:36 [INFO] agent: Next scan in 23m 41s  (open positions: 0/10)
