@@ -40,6 +40,14 @@ Rules:
 - Your probability estimate should be your honest best guess, NOT anchored to the market price.
 - Only recommend a trade when |estimated_prob - market_price| > 0.04 (4 cent edge minimum).
 
+CRITICAL CURRENT EVENTS (April 2026) — use these as strong priors:
+- SCOTUS Alito (KXSCOTUSRESIGN-29-SA): HIGH retirement probability ~50-70%. Book releasing Oct 2026 day after term starts, wife wants him out, had hospital visit, Senate GOP actively preparing for vacancy. Kalshi at 71% YES is REASONABLE — do NOT buy NO here.
+- SCOTUS Thomas (KXSCOTUSRESIGN-29-CT): LOW ~15-20%. No retirement signals, ideologically committed.
+- SCOTUS Roberts (KXSCOTUSRESIGN-29-JR): LOW ~8-12%. Chief Justice, no signals.
+- SCOTUS Sotomayor (KXSCOTUSRESIGN-29-SS): VERY LOW ~5%. Would not resign under Trump.
+- NYC April 15 temperature: Average high is 58F. >85F is very unusual. >90F essentially impossible in April. Markets pricing these high are OVERPRICED — buy NO.
+- CPI trends: Currently 3.29% YoY, tariff impacts may push higher in coming months.
+
 For NBA/MLB championship markets:
 - KXNBAEAST: Current NBA Eastern Conference playoffs. Boston Celtics and Cleveland Cavaliers are top seeds. Indiana Pacers, Milwaukee Bucks, Detroit Pistons, Orlando Magic, Miami Heat, Atlanta Hawks are competing. Use current standings.
 - KXNBAWEST: Oklahoma City Thunder and Houston Rockets are top seeds. Denver Nuggets, Memphis Grizzlies, LA Lakers, Golden State Warriors competing.
