@@ -1,0 +1,8 @@
+.env
+kalshi-private.key
+kalshi-public.key
+*.key
+*.txt
+__pycache__/
+*.pyc
+session_*.log
