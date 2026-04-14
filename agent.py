@@ -24,6 +24,54 @@ from fetchers import (
 log = logging.getLogger(__name__)
 
 
+# Liquid Kalshi series tickers with real volume
+LIQUID_SERIES = {
+    "sports": [
+        "KXNBA",        # NBA Finals — 13M volume
+        "KXNBAEAST",    # NBA Eastern Conference — 4M volume
+        "KXNBAWEST",    # NBA Western Conference — 4M volume
+        "KXMLB",        # MLB Championship — 900k volume
+        "KXMLBWINS-NYY", # Yankees wins — 10k volume
+        "KXMLBWINS-LAD", # Dodgers wins — 21k volume
+        "KXMLBWINS-BOS", # Red Sox wins — 18k volume
+        "KXMLBWINS-HOU", # Astros wins
+        "KXPGAR1LEAD",  # PGA Round 1 leader
+        "KXGOLFH2H",    # Golf head to head
+        "KXNHL",        # NHL
+        "KXNHLSC",      # Stanley Cup
+    ],
+    "politics": [
+        "KXTRUMPMENTION",      # Trump mentions
+        "KXLEADERCOMBOOUT",    # Leader out this month
+        "KXIMPEACHBOASBERG",   # Impeachment
+        "KXAUSTRALIA",         # Australian election
+        "KXSCOTUSRESIGN",      # SCOTUS resign
+    ],
+    "econ": [
+        "KXCPIYOY",      # CPI YoY — 410 volume
+        "KXCPI",         # CPI — 10k volume
+        "KXHIGHNY",      # NYC temp — 3k volume
+        "INXZ",          # S&P 500 up
+        "LAYOFFSY",      # Layoffs
+        "KXUSTYLD",      # Treasury yield
+    ],
+    "entertainment": [
+        "KXPGAR1LEAD",   # PGA
+        "KXTRUMPMENTION", # Mentions
+        "BILLBOARDPEAKUS", # Billboard
+        "KXLEADERMLBWINS", # MLB wins leader
+    ],
+    "crypto": [
+        "KXBTCD",        # Bitcoin daily
+        "KXETHD",        # Ethereum daily
+        "BITCOINMAXY",   # Bitcoin min/max
+    ],
+    "weather": [
+        "KXHIGHNY",      # NYC high temp — 3k volume
+        "RAINNY",        # NYC rain
+    ],
+}
+
 CATEGORY_CONFIG = {
     "sports": {
         "keywords": ["will", "Fed rate", "Bitcoin price", "recession", "unemployment", "election", "hurricane", "temperature"],
@@ -134,9 +182,12 @@ class KalshiTradingAgent:
             log.info(f"\n[{category.upper()}] Fetching markets...")
 
             # Rotate through keywords for this category
-            keyword = cat_cfg["keywords"][self.stats.markets_scanned % len(cat_cfg["keywords"])]
-            markets = await client.get_events(keyword=keyword, limit=25)
-            if not markets:
+            # Use liquid series tickers directly instead of keyword search
+            series_list = LIQUID_SERIES.get(category, [])
+            if series_list:
+                markets = await client.get_series_markets(series_list, limit=10)
+            else:
+                keyword = cat_cfg["keywords"][self.stats.markets_scanned % len(cat_cfg["keywords"])]
                 markets = await client.get_markets(keyword=keyword, limit=25)
 
             if not markets:

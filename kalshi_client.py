@@ -239,6 +239,38 @@ class KalshiClient:
             log.error(f"Error fetching events: {e}")
             return []
 
+    async def get_series_markets(self, series_tickers: list, limit: int = 10) -> list[KalshiMarket]:
+        """Fetch markets from specific series tickers — guaranteed liquid markets."""
+        import random
+        markets = []
+        # Rotate through series randomly for variety
+        random.shuffle(series_tickers)
+        for ticker in series_tickers[:6]:
+            try:
+                data = await self._get("/markets", params={"series_ticker": ticker, "status": "open", "limit": limit})
+                for m in data.get("markets", []):
+                    yes_bid = _parse_price(m.get("yes_bid_dollars") or m.get("yes_bid") or 0.5)
+                    yes_ask = _parse_price(m.get("yes_ask_dollars") or m.get("yes_ask") or 0.5)
+                    if yes_bid == 0.0 and yes_ask == 0.0:
+                        continue  # skip markets with no pricing
+                    markets.append(KalshiMarket(
+                        ticker=m.get("ticker", ""),
+                        title=m.get("title", ""),
+                        category=m.get("category", ticker),
+                        yes_bid=yes_bid,
+                        yes_ask=yes_ask,
+                        no_bid=round(1 - yes_ask, 4),
+                        no_ask=round(1 - yes_bid, 4),
+                        volume=int(float(m.get("volume", m.get("volume_fp", 0)) or 0)),
+                        open_interest=int(float(m.get("open_interest", 0) or 0)),
+                        close_time=m.get("close_time", m.get("expiration_time", "")),
+                        status=m.get("status", "open"),
+                    ))
+            except Exception as e:
+                log.warning(f"Series {ticker} fetch failed: {e}")
+        log.info(f"Fetched {len(markets)} markets from {len(series_tickers)} series")
+        return markets
+
     async def get_positions(self) -> list[dict]:
         try:
             data = await self._get("/portfolio/positions")
