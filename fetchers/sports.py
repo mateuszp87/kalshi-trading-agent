@@ -52,6 +52,7 @@ async def fetch_sports_signals(market_title: str, api_key: str = "") -> dict:
     signals = {}
     sport_key = _detect_sport(market_title)
     title_lower = market_title.lower()
+    away_team, home_team = _extract_teams(market_title)
 
     # Inject real NBA/MLB championship context
     if "eastern conference" in title_lower or "nbaeast" in title_lower.replace(" ",""):
@@ -90,6 +91,14 @@ async def fetch_sports_signals(market_title: str, api_key: str = "") -> dict:
                     "raw": MLB_CONTEXT["world_series"],
                 }
                 break
+
+    # Add team context for individual game markets
+    if away_team and home_team:
+        signals["game_context"] = {
+            "value": 0.5,
+            "description": f"Individual game market: {away_team} vs {home_team}. Home team ({home_team}) wins ~55% of NBA games. Use Vegas line as primary signal if available.",
+            "raw": {"away": away_team, "home": home_team, "sport": sport_key}
+        }
 
     async with aiohttp.ClientSession() as session:
         # 1. Vegas odds / probability implied by sportsbooks
@@ -131,6 +140,14 @@ async def fetch_sports_signals(market_title: str, api_key: str = "") -> dict:
 
     return signals
 
+
+def _extract_teams(title: str) -> tuple:
+    """Extract home and away teams from game title like 'Orlando vs Philadelphia'"""
+    title_clean = title.replace('Winner?','').replace('Second Half','').replace('First Half','').strip()
+    if ' vs ' in title_clean:
+        parts = title_clean.split(' vs ')
+        return parts[0].strip().split(':')[0].strip(), parts[1].strip().split(':')[0].strip()
+    return '', ''
 
 def _detect_sport(title: str) -> str:
     title_lower = title.lower()
