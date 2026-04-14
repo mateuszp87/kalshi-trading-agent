@@ -135,7 +135,9 @@ class KalshiTradingAgent:
 
             # Rotate through keywords for this category
             keyword = cat_cfg["keywords"][self.stats.markets_scanned % len(cat_cfg["keywords"])]
-            markets = await client.get_markets(keyword=keyword, limit=25)
+            markets = await client.get_events(keyword=keyword, limit=25)
+            if not markets:
+                markets = await client.get_markets(keyword=keyword, limit=25)
 
             if not markets:
                 log.info(f"  No markets found for keyword='{keyword}'")

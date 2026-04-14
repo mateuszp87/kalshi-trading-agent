@@ -186,33 +186,57 @@ class KalshiClient:
             log.error(f"Order failed ({ticker} {side} @{yes_price}): {e}")
             return None
 
-    async def get_events(self, limit: int = 25) -> list[KalshiMarket]:
-        """Fetch events — returns clean single-outcome markets."""
+    async def get_events(self, keyword: str = "", limit: int = 25) -> list[KalshiMarket]:
+        """Fetch events endpoint — returns clean single-outcome markets."""
         try:
-            data = await self._get('/events', params={'limit': limit, 'status': 'open'})
+            params = {"limit": limit}
+            if keyword:
+                params["search"] = keyword
+            data = await self._get("/events", params=params)
             markets = []
-            for event in data.get('events', []):
-                for market in event.get('markets', []):
-                    yes_bid = _parse_price(market.get('yes_bid') or 0.5)
-                    yes_ask = _parse_price(market.get('yes_ask') or 0.5)
-                    title = market.get('title', event.get('title', ''))
+            for event in data.get("events", []):
+                # Each event has one or more markets
+                event_markets = event.get("markets", [])
+                event_title = event.get("title", "")
+                event_category = event.get("category", "")
+                if not event_markets:
+                    # Event itself is the market
+                    yes_bid = _parse_price(event.get("yes_bid") or 0.5)
+                    yes_ask = _parse_price(event.get("yes_ask") or 0.5)
                     markets.append(KalshiMarket(
-                        ticker=market.get('ticker', ''),
-                        title=title,
-                        category=event.get('category', ''),
+                        ticker=event.get("event_ticker", event.get("ticker", "")),
+                        title=event_title,
+                        category=event_category,
                         yes_bid=yes_bid,
                         yes_ask=yes_ask,
                         no_bid=round(1 - yes_ask, 4),
                         no_ask=round(1 - yes_bid, 4),
-                        volume=int(market.get('volume', 0) or 0),
-                        open_interest=int(market.get('open_interest', 0) or 0),
-                        close_time=market.get('close_time', ''),
-                        status=market.get('status', 'open'),
+                        volume=int(event.get("volume", 0) or 0),
+                        open_interest=int(event.get("open_interest", 0) or 0),
+                        close_time=event.get("close_time", event.get("end_date", "")),
+                        status=event.get("status", "open"),
                     ))
-            log.info(f'Fetched {len(markets)} event markets')
+                for market in event_markets:
+                    yes_bid = _parse_price(market.get("yes_bid") or 0.5)
+                    yes_ask = _parse_price(market.get("yes_ask") or 0.5)
+                    title = market.get("title", "") or event_title
+                    markets.append(KalshiMarket(
+                        ticker=market.get("ticker", ""),
+                        title=title,
+                        category=event_category,
+                        yes_bid=yes_bid,
+                        yes_ask=yes_ask,
+                        no_bid=round(1 - yes_ask, 4),
+                        no_ask=round(1 - yes_bid, 4),
+                        volume=int(market.get("volume", 0) or 0),
+                        open_interest=int(market.get("open_interest", 0) or 0),
+                        close_time=market.get("close_time", event.get("end_date", "")),
+                        status=market.get("status", "open"),
+                    ))
+            log.info(f"Fetched {len(markets)} event markets (keyword='{keyword}')")
             return markets
         except Exception as e:
-            log.error(f'Error fetching events: {e}')
+            log.error(f"Error fetching events: {e}")
             return []
 
     async def get_positions(self) -> list[dict]:
