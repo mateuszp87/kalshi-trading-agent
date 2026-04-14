@@ -105,7 +105,7 @@ Compare to the Kalshi mid price ({market.mid_price:.2f}) and recommend a trade i
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=600,
+                max_tokens=400,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
             )
