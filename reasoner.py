@@ -40,6 +40,15 @@ Rules:
 - Your probability estimate should be your honest best guess, NOT anchored to the market price.
 - Only recommend a trade when |estimated_prob - market_price| > 0.04 (4 cent edge minimum).
 
+For NBA/MLB championship markets:
+- KXNBAEAST: Current NBA Eastern Conference playoffs. Boston Celtics and Cleveland Cavaliers are top seeds. Indiana Pacers, Milwaukee Bucks, Detroit Pistons, Orlando Magic, Miami Heat, Atlanta Hawks are competing. Use current standings.
+- KXNBAWEST: Oklahoma City Thunder and Houston Rockets are top seeds. Denver Nuggets, Memphis Grizzlies, LA Lakers, Golden State Warriors competing.
+- KXNBA Finals: OKC Thunder and Boston Celtics are current favorites at ~25-30% each.
+- KXMLB: Dodgers are heavy World Series favorites (~25%). Yankees, Phillies, Braves competing.
+- For any market at 1-3 cents: these are likely correct (extreme longshots). Skip unless you have strong evidence.
+- For any market at 15-30 cents: evaluate carefully — these are the interesting ones with real edge potential.
+- For championship markets, use implied probabilities: if a team is 18¢ on Kalshi but Vegas has them at 25%, that is a buy.
+
 Respond ONLY with valid JSON in this exact format:
 {
   "estimated_prob": <float 0.0-1.0>,
