@@ -269,14 +269,32 @@ class KalshiTradingAgent:
         side: str,
         signal: TradeSignal,
     ):
-        # Size contracts: each Kalshi contract = $0.01 max payout
-        # We'll use limit orders priced at the current ask
-        price_cents = int(market.yes_ask * 100) if side == "yes" else int(market.no_ask * 100)
-        # # contracts = max_bet / cost_per_contract_in_dollars
-        cost_per_contract = price_cents / 100
-        count = max(1, int(self.config.max_bet_size / cost_per_contract))
+        # Size bet based on confidence level
+        # confidence 0.8-1.0 -> full max bet ()
+        # confidence 0.6-0.8 -> 70% of max bet (.50)
+        # confidence 0.4-0.6 -> 50% of max bet (.50)
+        # confidence 0.0-0.4 -> 30% of max bet (.50)
+        confidence = signal.confidence
+        if confidence >= 0.8:
+            bet_fraction = 1.0
+            tier = "HIGH"
+        elif confidence >= 0.6:
+            bet_fraction = 0.7
+            tier = "MEDIUM"
+        elif confidence >= 0.4:
+            bet_fraction = 0.5
+            tier = "LOW"
+        else:
+            bet_fraction = 0.3
+            tier = "VERY LOW"
 
+        sized_bet = round(self.config.max_bet_size * bet_fraction, 2)
+        price_cents = int(market.yes_ask * 100) if side == "yes" else int(market.no_ask * 100)
+        cost_per_contract = price_cents / 100
+        count = max(1, int(sized_bet / cost_per_contract))
         total_cost = round(cost_per_contract * count, 2)
+
+        log.info(f"  Confidence: {confidence:.0%} ({tier}) → sizing bet at {bet_fraction:.0%} of max = ")
 
         if self.config.dry_run:
             log.info(f"  [DRY RUN] Would BUY {side.upper()} | {market.ticker} | {count} contracts @ {price_cents}¢ | Total: ${total_cost:.2f}")
