@@ -27,7 +27,24 @@ log = logging.getLogger(__name__)
 # Liquid Kalshi series tickers with real volume
 LIQUID_SERIES = {
     "sports": [
-        "KXNBA",        # NBA Finals — 13M volume
+        # Today's games — highest priority
+        "KXNBAGAME",      # NBA individual game winner
+        "KXMLBGAME",      # MLB individual game winner  
+        "KXNHLGAME",      # NHL individual game winner
+        "KXNBAPLAYOFF",   # NBA playoff qualifier
+        "KXNHLPLAYOFF",   # NHL playoff qualifier
+        "KXMLBPLAYOFFS",  # MLB playoff qualifier
+        "KXNBA1HWINNER",  # NBA 1st half winner
+        "KXNBA2HWINNER",  # NBA 2nd half winner
+        "KXMLBF5",        # MLB first 5 innings winner
+        "KXNBA1QWINNER",  # NBA 1st quarter winner
+        "KXNBA3QWINNER",  # NBA 3rd quarter winner
+        "KXNBA4QWINNER",  # NBA 4th quarter winner
+        "KXEPLGAME",      # Premier League game
+        "KXUCLGAME",      # Champions League game
+        "KXNBAPLAYOFFPTS", # NBA playoffs player points
+        # Season futures — liquid
+        "KXNBA",        # NBA Finals — 13M volume — 13M volume
         "KXNBAEAST",    # NBA Eastern Conference — 4M volume
         "KXNBAWEST",    # NBA Western Conference — 4M volume
         "KXMLB",        # MLB Championship — 900k volume
