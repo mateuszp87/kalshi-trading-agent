@@ -10,6 +10,14 @@ log = logging.getLogger(__name__)
 
 
 async def fetch_politics_signals(market_title: str, newsapi_key: str = "") -> dict:
+    """
+    NOTE: For SCOTUS resignation markets, current news (April 2026):
+    - Alito retirement probability is HIGH (~50-70%) — book releasing Oct 2026, wife wants him to retire, health visit, Senate GOP prepared
+    - Thomas retirement probability is LOW (~10-15%) — no retirement signals
+    - Roberts retirement probability is LOW (~8%) — no signals
+    - Sotomayor resignation probability is LOW (~5-8%) — would not resign under Trump
+    These base rates should override Claude's naive priors.
+    """
     signals = {}
 
     async with aiohttp.ClientSession() as session:
