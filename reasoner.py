@@ -45,7 +45,7 @@ CRITICAL CURRENT EVENTS (April 2026) — use these as strong priors:
 - SCOTUS Thomas (KXSCOTUSRESIGN-29-CT): LOW ~15-20%. No retirement signals, ideologically committed.
 - SCOTUS Roberts (KXSCOTUSRESIGN-29-JR): LOW ~8-12%. Chief Justice, no signals.
 - SCOTUS Sotomayor (KXSCOTUSRESIGN-29-SS): VERY LOW ~5%. Would not resign under Trump.
-- NYC April 15 temperature: Average high is 58F. >85F is very unusual. >90F essentially impossible in April. Markets pricing these high are OVERPRICED — buy NO.
+- NYC April 15 temperature: Weather Underground forecasts 85F high on April 15, 2026 (near record). This means: >90F unlikely (~5%), 85-86F range likely (~35%), <83F unlikely (~10%), 87-88F possible (~20%), 89-90F unlikely (~8%). Do NOT buy YES on <83F — temp forecast is 85F so it will NOT be below 83. DO buy NO on >90F. DO consider buying YES on 85-86F range.
 - CPI trends: Currently 3.29% YoY, tariff impacts may push higher in coming months.
 
 For NBA/MLB championship markets:
