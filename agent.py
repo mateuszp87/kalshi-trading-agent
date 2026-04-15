@@ -1,369 +1,488 @@
 """
-Main agent orchestrator — ties together Kalshi API, signal fetchers, and Claude reasoner.
-Runs scan loops, enforces risk limits, executes or simulates trades.
+Kalshi Trading Agent — game-first with auto exit.
+
+Sports priority:
+  1. NBA/NHL/MLB/UCL individual game winners     (same day)
+  2. NBA half/quarter winners & player props     (same day)
+  3. NHL/NBA series winners & spreads            (this week)
+  4. MLB game totals, soccer league games        (same day/week)
+  5. Daily crypto + weather                      (same day)
+  6. Long-term econ/politics as fallback only
+
+Exit rules (every scan cycle):
+  TAKE PROFIT  — close position if +15 cents in your favor
+  STOP LOSS    — close position if -20 cents against you
 """
 
-import asyncio
-import logging
-import random
+import asyncio, json, logging, random
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from typing import Optional
 
 from config import AgentConfig
 from kalshi_client import KalshiClient, KalshiMarket
 from reasoner import ClaudeReasoner, TradeSignal
 from fetchers import (
-    fetch_sports_signals,
-    fetch_politics_signals,
-    fetch_econ_signals,
-    fetch_entertainment_signals,
-    fetch_crypto_signals,
-    fetch_weather_signals,
+    fetch_sports_signals, fetch_politics_signals, fetch_econ_signals,
+    fetch_entertainment_signals, fetch_crypto_signals, fetch_weather_signals,
 )
 
 log = logging.getLogger(__name__)
 
+# ── Exit thresholds ───────────────────────────────────────────
+TAKE_PROFIT = 0.15   # +15 cents = close and lock profit
+STOP_LOSS   = 0.20   # -20 cents = cut the loss
 
-# Liquid Kalshi series tickers with real volume
-LIQUID_SERIES = {
+# ── Series tickers — ordered by priority ─────────────────────
+GAME_SERIES = {
     "sports": [
-        # Today's games — highest priority
-        "KXNBAGAME",      # NBA individual game winner
-        "KXMLBGAME",      # MLB individual game winner  
-        "KXNHLGAME",      # NHL individual game winner
-        "KXNBAPLAYOFF",   # NBA playoff qualifier
-        "KXNHLPLAYOFF",   # NHL playoff qualifier
-        "KXMLBPLAYOFFS",  # MLB playoff qualifier
-        "KXNBA1HWINNER",  # NBA 1st half winner
-        "KXNBA2HWINNER",  # NBA 2nd half winner
-        "KXMLBF5",        # MLB first 5 innings winner
-        "KXNBA1QWINNER",  # NBA 1st quarter winner
-        "KXNBA3QWINNER",  # NBA 3rd quarter winner
-        "KXNBA4QWINNER",  # NBA 4th quarter winner
-        "KXEPLGAME",      # Premier League game
-        "KXUCLGAME",      # Champions League game
-        "KXNBAPLAYOFFPTS", # NBA playoffs player points
-        # Season futures — liquid
-        "KXNBA",        # NBA Finals — 13M volume — 13M volume
-        "KXNBAEAST",    # NBA Eastern Conference — 4M volume
-        "KXNBAWEST",    # NBA Western Conference — 4M volume
-        "KXMLB",        # MLB Championship — 900k volume
-        "KXMLBWINS-NYY", # Yankees wins — 10k volume
-        "KXMLBWINS-LAD", # Dodgers wins — 21k volume
-        "KXMLBWINS-BOS", # Red Sox wins — 18k volume
-        "KXMLBWINS-HOU", # Astros wins
-        "KXPGAR1LEAD",  # PGA Round 1 leader
-        "KXGOLFH2H",    # Golf head to head
-        "KXNHL",        # NHL
-        "KXNHLSC",      # Stanley Cup
-    ],
-    "politics": [
-        "KXTRUMPMENTION",      # Trump mentions
-        "KXLEADERCOMBOOUT",    # Leader out this month
-        "KXIMPEACHBOASBERG",   # Impeachment
-        "KXAUSTRALIA",         # Australian election
-        "KXSCOTUSRESIGN",      # SCOTUS resign
-    ],
-    "econ": [
-        "KXCPIYOY",      # CPI YoY — 410 volume
-        "KXCPI",         # CPI — 10k volume
-        "KXHIGHNY",      # NYC temp — 3k volume
-        "INXZ",          # S&P 500 up
-        "LAYOFFSY",      # Layoffs
-        "KXUSTYLD",      # Treasury yield
-    ],
-    "entertainment": [
-        "KXPGAR1LEAD",   # PGA
-        "KXTRUMPMENTION", # Mentions
-        "BILLBOARDPEAKUS", # Billboard
-        "KXLEADERMLBWINS", # MLB wins leader
+        # Individual game winners — resolve same day
+        "KXNBAGAME",        # NBA game winner        5.8M vol
+        "KXNHLGAME",        # NHL game winner         14k vol
+        "KXUCLGAME",        # Champions League        3.7M vol
+        "KXMLBGAME",        # MLB game winner         daily
+        "KXEPLGAME",        # Premier League          1.4k vol
+        "KXSERIEAGAME",     # Serie A                 1.8k vol
+        "KXLALIGAGAME",     # La Liga                 356 vol
+        "KXBUNDESLIGAGAME", # Bundesliga              daily
+        "KXMLSGAME",        # MLS                     daily
+        # In-game markets — same day
+        "KXNBA1HWINNER",    # NBA 1st half            82k vol
+        "KXNBA2HWINNER",    # NBA 2nd half            479 vol
+        "KXNBA1QWINNER",    # NBA quarters            daily
+        "KXNBA2QWINNER",
+        "KXNBA3QWINNER",
+        "KXNBA4QWINNER",
+        "KXMLBF5",          # MLB first 5 innings     daily
+        # Player props
+        "KXNBAPLAYOFFPTS",  # NBA playoff player pts
+        # Series (week-long)
+        "KXNHLSERIES",      # NHL playoff series      6.4k vol
+        "KXNBASERIESSPREAD",# NBA series spread       265 vol
+        "KXNBASERIESGAMES", # NBA series games        301 vol
     ],
     "crypto": [
-        "KXBTCD",        # Bitcoin daily
-        "KXETHD",        # Ethereum daily
-        "BITCOINMAXY",   # Bitcoin min/max
+        "KXBTCD",           # Bitcoin daily           TODAY
+        "KXETHD",           # Ethereum daily          TODAY
     ],
     "weather": [
-        "KXHIGHNY",      # NYC high temp — 3k volume
-        "RAINNY",        # NYC rain
+        "KXHIGHNY",         # NYC high temp           TODAY
+        "RAINNY",           # NYC rain                TODAY
+    ],
+    "econ": [
+        "INXZ",             # S&P 500 daily           TODAY
+        "KXCPIYOY",         # CPI YoY
+        "KXCPI",            # CPI monthly
+    ],
+    "politics": [
+        "KXTRUMPMENTION",   # Trump interview         daily
+        "KXSCOTUSRESIGN",   # SCOTUS resign
+    ],
+    "entertainment": [
+        "KXPGAR1LEAD",      # PGA round 1             weekly
     ],
 }
 
+# Season win totals — fallback only (skip if games available)
+SEASON_SERIES = [
+    "KXNBA", "KXNBAEAST", "KXNBAWEST",
+    "KXMLB", "KXMLBWINS-LAD", "KXMLBWINS-NYY", "KXMLBWINS-BOS",
+]
+
 CATEGORY_CONFIG = {
-    "sports": {
-        "keywords": ["will", "Fed rate", "Bitcoin price", "recession", "unemployment", "election", "hurricane", "temperature"],
-        "fetcher": fetch_sports_signals,
-        "fetcher_key_arg": "api_key",
-        "config_key": "espn_api_key",
-    },
-    "politics": {
-        "keywords": ["Trump approve", "Senate majority", "government shutdown", "Supreme Court", "tariff", "executive order", "Congress pass", "veto", "recession 2026", "rate cut"],
-        "fetcher": fetch_politics_signals,
-        "fetcher_key_arg": "newsapi_key",
-        "config_key": "newsapi_key",
-    },
-    "econ": {
-        "keywords": ["Fed rate", "rate cut", "rate hike", "CPI above", "inflation above", "unemployment above", "GDP growth", "recession 2026", "FOMC decision", "interest rate"],
-        "fetcher": fetch_econ_signals,
-        "fetcher_key_arg": "fred_api_key",
-        "config_key": "fred_api_key",
-    },
-    "entertainment": {
-        "keywords": ["Oscar", "Grammy", "Emmy", "movie", "film", "album", "box office", "Netflix", "Taylor Swift", "award"],
-        "fetcher": fetch_entertainment_signals,
-        "fetcher_key_arg": "newsapi_key",
-        "config_key": "newsapi_key",
-    },
-    "crypto": {
-        "keywords": ["Bitcoin above", "Bitcoin below", "BTC price", "Ethereum above", "ETH price", "crypto ETF", "Bitcoin ETF", "Solana above", "crypto market cap", "altcoin season"],
-        "fetcher": fetch_crypto_signals,
-        "fetcher_key_arg": "coingecko_api_key",
-        "config_key": "coingecko_api_key",
-    },
-    "weather": {
-        "keywords": ["hurricane", "tornado", "storm", "snow", "blizzard", "flood", "temperature", "heat", "rainfall", "El Niño"],
-        "fetcher": fetch_weather_signals,
-        "fetcher_key_arg": "noaa_token",
-        "config_key": "noaa_token",
-    },
+    "sports":        {"fetcher": fetch_sports_signals,        "key_arg": "api_key",          "cfg": "espn_api_key"},
+    "politics":      {"fetcher": fetch_politics_signals,      "key_arg": "newsapi_key",       "cfg": "newsapi_key"},
+    "econ":          {"fetcher": fetch_econ_signals,          "key_arg": "fred_api_key",      "cfg": "fred_api_key"},
+    "entertainment": {"fetcher": fetch_entertainment_signals, "key_arg": "newsapi_key",       "cfg": "newsapi_key"},
+    "crypto":        {"fetcher": fetch_crypto_signals,        "key_arg": "coingecko_api_key", "cfg": "coingecko_api_key"},
+    "weather":       {"fetcher": fetch_weather_signals,       "key_arg": "noaa_token",        "cfg": "noaa_token"},
 }
+
+
+def priority_score(m: KalshiMarket) -> float:
+    """Higher = scan first. Game markets closing today rank highest."""
+    h = m.hours_until_close
+    vol = m.volume or 0
+    if h is None:   base = 5
+    elif h <= 6:    base = 2000
+    elif h <= 12:   base = 1600
+    elif h <= 24:   base = 1300
+    elif h <= 48:   base = 1000
+    elif h <= 168:  base = 500
+    elif h <= 720:  base = 100
+    else:           base = 20
+    return base + min(vol / 1000, 400)
+
+
+def is_game(title: str) -> bool:
+    """True if this is an individual game market (not a season future)."""
+    t = title.lower()
+    game_words = [" at ", " vs ", "winner?", "first half", "second half",
+                  "quarter winner", "first 5 innings", "series winner",
+                  "series spread", "total games", "points tonight"]
+    season_words = ["win at least", "win the 2026", "win the season",
+                    "championship?", "conference champion", "division winner",
+                    "lead pro baseball", "lead pro basketball"]
+    return any(w in t for w in game_words) and not any(w in t for w in season_words)
+
+
+def edge_threshold(m: KalshiMarket) -> float:
+    """Minimum edge required to place a trade based on timeframe."""
+    h = m.hours_until_close
+    if h is None:       return 0.12
+    if h <= 24:         return 0.04   # same-day game: 4 cents
+    if h <= 168:        return 0.06   # this week: 6 cents
+    if h <= 720:        return 0.08   # this month: 8 cents
+    return 0.12                       # long-term: 12 cents
 
 
 @dataclass
-class SessionStats:
-    trades_placed: int = 0
-    trades_skipped: int = 0
-    markets_scanned: int = 0
-    daily_pnl: float = 0.0
+class Position:
+    ticker: str
+    title: str
+    side: str           # "yes" or "no"
+    entry_price: float
+    contracts: int
+    cost: float
+    entry_time: str
+    category: str
+    timeframe: str
+    is_game: bool = False
+
+
+@dataclass
+class Stats:
+    placed: int = 0
+    exited: int = 0
+    skipped: int = 0
+    scanned: int = 0
+    realized_pnl: float = 0.0
     wins: int = 0
     losses: int = 0
-    open_positions: int = 0          # live count of unresolved positions
-    open_tickers: set = field(default_factory=set)  # prevent double-entry same market
-    trade_log: list = field(default_factory=list)
+    positions: dict = field(default_factory=dict)  # ticker → Position
 
     @property
-    def win_rate(self) -> float:
-        total = self.wins + self.losses
-        return self.wins / total if total > 0 else 0.0
+    def count(self): return len(self.positions)
+    @property
+    def win_rate(self):
+        t = self.wins + self.losses
+        return self.wins / t if t else 0.0
 
 
 class KalshiTradingAgent:
     def __init__(self, config: AgentConfig):
         self.config = config
-        self.stats = SessionStats()
+        self.stats = Stats()
         self.reasoner = ClaudeReasoner(config.anthropic_api_key, config.claude_model)
-        self._running = True
+        self._pnl = self._load_pnl()
+
+    def _load_pnl(self):
+        try:
+            with open("pnl_log.json") as f:
+                return json.load(f)
+        except:
+            return {"all_time_pnl": 0.0, "wins": 0, "losses": 0,
+                    "trades": [], "known_ids": []}
+
+    def _save_pnl(self):
+        try:
+            with open("pnl_log.json", "w") as f:
+                json.dump(self._pnl, f, indent=2)
+        except Exception as e:
+            log.warning(f"pnl save failed: {e}")
 
     async def run(self):
-        config = self.config
         try:
-            config.validate()
+            self.config.validate()
         except EnvironmentError as e:
-            log.error(str(e))
-            return
+            log.error(str(e)); return
 
-        log.info("Starting Kalshi Trading Agent...")
-        log.info(f"Categories: {config.active_categories}")
+        mode = "DRY RUN" if self.config.dry_run else "LIVE TRADING"
+        log.info(f"Kalshi Agent | {mode} | game markets first | exit ±{int(TAKE_PROFIT*100)}¢/±{int(STOP_LOSS*100)}¢")
 
-        async with KalshiClient(config.kalshi_api_key, config.kalshi_base_url, config.kalshi_private_key_path) as client:
-            balance = await client.get_balance()
-            log.info(f"Account balance: ${balance:.2f}")
+        async with KalshiClient(
+            self.config.kalshi_api_key,
+            self.config.kalshi_base_url,
+            self.config.kalshi_private_key_path,
+        ) as client:
+            bal = await client.get_balance()
+            log.info(f"Balance: ${bal:.2f}")
 
-            while self._running:
+            while True:
                 try:
-                    await self._scan_cycle(client)
+                    await self._process_settlements(client)
+                    await self._manage_exits(client)
+                    if self.stats.count < self.config.max_open_positions:
+                        await self._scan(client)
+                    else:
+                        log.info(f"  Full ({self.stats.count}/{self.config.max_open_positions}) — exits only")
                 except KeyboardInterrupt:
-                    log.info("Interrupted by user.")
                     break
                 except Exception as e:
-                    log.error(f"Scan cycle error: {e}", exc_info=True)
+                    log.error(f"Cycle error: {e}", exc_info=True)
 
-                self._print_session_stats()
+                self._print_stats()
+                if self.stats.realized_pnl <= -self.config.max_daily_loss:
+                    log.warning("Daily loss limit — stopping."); break
 
-                if abs(self.stats.daily_pnl) >= config.max_daily_loss:
-                    log.warning(f"Daily loss limit hit (${self.stats.daily_pnl:.2f}). Stopping.")
-                    break
-
-                # Randomize interval between scan_interval_min and scan_interval_max
-                wait = random.randint(config.scan_interval_min, config.scan_interval_max)
-                log.info(f"Next scan in {wait//60}m {wait%60}s  (open positions: {self.stats.open_positions}/{config.max_open_positions})")
+                wait = random.randint(self.config.scan_interval_min, self.config.scan_interval_max)
+                log.info(f"Next scan in {wait//60}m {wait%60}s | positions: {self.stats.count}/{self.config.max_open_positions}")
                 await asyncio.sleep(wait)
 
-    async def _scan_cycle(self, client: KalshiClient):
+    # ── Settlements ──────────────────────────────────────────
+    async def _process_settlements(self, client):
+        try:
+            known = set(self._pnl.get("known_ids", []))
+            new = 0
+            for s in await client.get_settlements():
+                sid = s.get("id") or s.get("market_ticker") or ""
+                if not sid or sid in known:
+                    continue
+                rev  = float(s.get("revenue", 0)) / 100
+                cost = float(s.get("cost", 0)) / 100
+                pnl  = round(rev - cost, 2)
+                won  = pnl > 0
+                ticker = s.get("market_ticker", "")
+                self._pnl["all_time_pnl"] = round(self._pnl["all_time_pnl"] + pnl, 2)
+                self._pnl["wins" if won else "losses"] += 1
+                self._pnl["trades"].append({
+                    "id": sid, "ticker": ticker, "type": "settlement",
+                    "pnl": pnl, "won": won,
+                    "time": s.get("created_time", datetime.now(timezone.utc).isoformat()),
+                })
+                known.add(sid)
+                self.stats.realized_pnl += pnl
+                if won: self.stats.wins += 1
+                else:   self.stats.losses += 1
+                log.info(f"  {'✅ WIN' if won else '❌ LOSS'} SETTLED: {ticker} | P&L ${pnl:+.2f}")
+                if ticker in self.stats.positions:
+                    del self.stats.positions[ticker]
+                new += 1
+            self._pnl["known_ids"] = list(known)
+            if new:
+                self._save_pnl()
+                log.info(f"  {new} settled. All-time P&L: ${self._pnl['all_time_pnl']:+.2f}")
+        except Exception as e:
+            log.warning(f"Settlement check error: {e}")
+
+    # ── Exit management — take profit / stop loss ─────────────
+    async def _manage_exits(self, client):
+        if not self.stats.positions:
+            return
+        tickers = list(self.stats.positions.keys())
+        log.info(f"\n[EXIT CHECK] {len(tickers)} open positions")
+
+        for ticker in tickers:
+            pos = self.stats.positions.get(ticker)
+            if not pos:
+                continue
+            mkt = await client.get_market(ticker)
+            if not mkt:
+                continue
+
+            yes_bid = mkt.get("yes_bid", 0)
+            yes_ask = mkt.get("yes_ask", 0)
+
+            # How much has our position moved?
+            if pos.side == "yes":
+                current = yes_bid          # sell YES → get bid
+                move = current - pos.entry_price
+            else:
+                current = round(1 - yes_ask, 4) if yes_ask else 0
+                move = current - pos.entry_price
+
+            unreal = round(move * pos.contracts, 2)
+            log.info(f"  {ticker[:38]} {pos.side.upper()} {pos.contracts}x | entry={pos.entry_price:.2f} now={current:.2f} | move={move:+.2f} | unrealized=${unreal:+.2f}")
+
+            reason = ""
+            if move >= TAKE_PROFIT:
+                reason = f"TAKE PROFIT +{move:.2f}"
+            elif move <= -STOP_LOSS:
+                reason = f"STOP LOSS {move:.2f}"
+
+            if not reason:
+                continue
+
+            proceeds = round(current * pos.contracts, 2)
+            pnl = round(proceeds - pos.cost, 2)
+            log.info(f"  → EXIT [{reason}] | {pos.contracts}x @ {current:.2f} | P&L ${pnl:+.2f}")
+
+            if not self.config.dry_run:
+                result = await client.sell_position(ticker, pos.side, pos.contracts, current)
+                if not result:
+                    log.warning(f"  Sell failed for {ticker}")
+                    continue
+            else:
+                log.info(f"  [DRY RUN] Would SELL {pos.side.upper()} {pos.contracts}x {ticker} @ {current:.2f}")
+
+            self.stats.realized_pnl += pnl
+            self.stats.exited += 1
+            if pnl > 0: self.stats.wins += 1
+            else:       self.stats.losses += 1
+
+            self._pnl["all_time_pnl"] = round(self._pnl["all_time_pnl"] + pnl, 2)
+            self._pnl["wins" if pnl > 0 else "losses"] += 1
+            self._pnl["trades"].append({
+                "ticker": ticker, "type": "early_exit",
+                "side": pos.side, "contracts": pos.contracts,
+                "entry": pos.entry_price, "exit": current,
+                "pnl": pnl, "reason": reason,
+                "time": datetime.now(timezone.utc).isoformat(),
+            })
+            self._save_pnl()
+            del self.stats.positions[ticker]
+
+    # ── Market scan ──────────────────────────────────────────
+    async def _scan(self, client):
         log.info("=" * 60)
-        log.info(f"SCAN CYCLE — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        log.info(f"SCAN — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
         log.info("=" * 60)
 
         for category in self.config.active_categories:
             cat_cfg = CATEGORY_CONFIG[category]
-            log.info(f"\n[{category.upper()}] Fetching markets...")
+            log.info(f"\n[{category.upper()}]")
 
-            # Rotate through keywords for this category
-            # Use liquid series tickers directly instead of keyword search
-            # Smart category routing — weather series get weather signals regardless of category
-            series_list = LIQUID_SERIES.get(category, [])
-            # Override: KXHIGHNY and RAINNY always use weather fetcher
-            weather_series = ["KXHIGHNY", "RAINNY"]
-            sports_series = ["KXNBA", "KXNBAEAST", "KXNBAWEST", "KXMLB", "KXMLBWINS-NYY", "KXMLBWINS-LAD", "KXMLBWINS-BOS", "KXMLBWINS-HOU", "KXPGAR1LEAD"]
-            if series_list:
-                markets = await client.get_series_markets(series_list, limit=10)
-            else:
-                keyword = cat_cfg["keywords"][self.stats.markets_scanned % len(cat_cfg["keywords"])]
-                markets = await client.get_markets(keyword=keyword, limit=25)
+            series = GAME_SERIES.get(category, [])
+            markets = await client.get_series_markets(series, limit=10)
+
+            # Sports: prioritize game markets, append season markets as fallback
+            if category == "sports":
+                games = [m for m in markets if is_game(m.title)]
+                others = [m for m in markets if not is_game(m.title)]
+                if not games:
+                    log.info("  No priced games — adding season fallback...")
+                    fallback = await client.get_series_markets(SEASON_SERIES, limit=5)
+                    markets = others + fallback
+                else:
+                    markets = games + others
 
             if not markets:
-                log.info(f"  No markets found for keyword='{keyword}'")
-                continue
+                log.info("  No markets."); continue
 
-            log.info(f"  Found {len(markets)} markets. Scoring top {min(3, len(markets))}...")
+            priced = [m for m in markets if m.yes_bid > 0 or m.yes_ask > 0]
+            if not priced:
+                log.info(f"  {len(markets)} found, none priced yet."); continue
 
-            for market in markets[:5]:
-                self.stats.markets_scanned += 1
-                await self._evaluate_market(client, market, category, cat_cfg)
-                await asyncio.sleep(1)  # rate limit Claude calls
+            priced.sort(key=priority_score, reverse=True)
+            game_ct = sum(1 for m in priced if is_game(m.title))
+            today_ct = sum(1 for m in priced if m.hours_until_close is not None and m.hours_until_close <= 24)
+            log.info(f"  {len(priced)} priced | {game_ct} games | {today_ct} today | scoring top 5...")
 
-    async def _evaluate_market(
-        self,
-        client: KalshiClient,
-        market: KalshiMarket,
-        category: str,
-        cat_cfg: dict,
-    ):
-        # ── Risk gate: max 10 open positions ──────────────────────────────────
-        if self.stats.open_positions >= self.config.max_open_positions:
-            log.info(f"  → SKIP — at position limit ({self.config.max_open_positions} open). Waiting for resolution.")
-            self.stats.trades_skipped += 1
+            for market in priced[:5]:
+                if self.stats.count >= self.config.max_open_positions:
+                    log.info("  Position limit — skipping rest"); break
+                self.stats.scanned += 1
+                await self._evaluate(client, market, category, cat_cfg)
+                await asyncio.sleep(1)
+
+    async def _evaluate(self, client, market: KalshiMarket, category: str, cat_cfg: dict):
+        if market.ticker in self.stats.positions:
+            log.info(f"  → SKIP already holding {market.ticker}")
             return
 
-        # ── Prevent re-entering same market ───────────────────────────────────
-        if market.ticker in self.stats.open_tickers:
-            log.info(f"  → SKIP — already holding position in {market.ticker}")
-            return
-        log.info(f"\n  Market: {market.title[:70]}")
-        log.info(f"  Ticker: {market.ticker} | Mid: {market.mid_price:.2f} | Vol: {market.volume:,}")
+        game_flag = is_game(market.title)
+        log.info(f"\n  {'🏀' if game_flag else '📊'} {market.title[:70]}")
+        log.info(f"  {market.ticker} | mid={market.mid_price:.2f} | vol={market.volume:,} | [{market.timeframe_label}]")
 
-        # Fetch signals from external APIs
-        api_key_val = getattr(self.config, cat_cfg["config_key"], "")
+        api_val = getattr(self.config, cat_cfg["cfg"], "")
         try:
-            signals = await cat_cfg["fetcher"](market.title, **{cat_cfg["fetcher_key_arg"]: api_key_val})
+            signals = await cat_cfg["fetcher"](market.title, **{cat_cfg["key_arg"]: api_val})
         except Exception as e:
-            log.warning(f"  Signal fetch error: {e}")
+            log.warning(f"  Signal error: {e}")
             signals = {}
 
-        if signals:
-            log.info(f"  Signals gathered: {list(signals.keys())}")
-        else:
-            log.warning("  No signals gathered — Claude will reason from market title only.")
+        log.info(f"  Signals: {list(signals.keys()) if signals else 'none — reasoning from title'}")
 
-        # Claude scores the market
-        signal: TradeSignal = self.reasoner.score_market(market, signals, category)
+        signal = self.reasoner.score_market(market, signals, category)
+        if not signal:
+            log.warning("  Claude returned None"); return
 
-        if signal is None:
-            log.warning("  Claude scoring returned None.")
-            return
+        log.info(f"  Claude: prob={signal.estimated_prob:.2f} edge={signal.edge:+.2f} action={signal.action} conf={signal.confidence:.0%}")
+        log.info(f"  {signal.reasoning}")
 
-        log.info(f"  Claude: estimated_prob={signal.estimated_prob:.2f} | edge={signal.edge:+.2f} | action={signal.action}")
-        log.info(f"  Reasoning: {signal.reasoning}")
-
-        # Enforce thresholds
         if signal.action == "skip":
-            log.info("  → SKIP (Claude recommends no trade)")
-            self.stats.trades_skipped += 1
-            return
+            log.info("  → SKIP"); self.stats.skipped += 1; return
 
-        if signal.action == "buy_yes" and signal.edge >= 0.04:
-            await self._execute_trade(client, market, "yes", signal)
-        elif signal.action == "buy_no" and signal.edge <= -0.04:
-            await self._execute_trade(client, market, "no", signal)
+        thresh = edge_threshold(market)
+        if signal.action == "buy_yes" and signal.edge >= thresh:
+            await self._place(client, market, "yes", signal, category)
+        elif signal.action == "buy_no" and signal.edge <= -thresh:
+            await self._place(client, market, "no", signal, category)
         else:
-            log.info(f"  → SKIP (market price {market.mid_price:.2f} doesn't meet threshold)")
-            self.stats.trades_skipped += 1
+            log.info(f"  → SKIP edge {signal.edge:+.2f} < {thresh:.2f} for {market.timeframe_label}")
+            self.stats.skipped += 1
 
-    async def _execute_trade(
-        self,
-        client: KalshiClient,
-        market: KalshiMarket,
-        side: str,
-        signal: TradeSignal,
-    ):
-        # Size bet based on confidence level
-        # confidence 0.8-1.0 -> full max bet ()
-        # confidence 0.6-0.8 -> 70% of max bet (.50)
-        # confidence 0.4-0.6 -> 50% of max bet (.50)
-        # confidence 0.0-0.4 -> 30% of max bet (.50)
-        confidence = signal.confidence
-        if confidence >= 0.8:
-            bet_fraction = 1.0
-            tier = "HIGH"
-        elif confidence >= 0.6:
-            bet_fraction = 0.7
-            tier = "MEDIUM"
-        elif confidence >= 0.4:
-            bet_fraction = 0.5
-            tier = "LOW"
-        else:
-            bet_fraction = 0.3
-            tier = "VERY LOW"
+    async def _place(self, client, market: KalshiMarket, side: str, signal: TradeSignal, category: str):
+        c = signal.confidence
+        if c >= 0.85:   frac, tier = 1.00, "HIGH"
+        elif c >= 0.70: frac, tier = 0.70, "MEDIUM"
+        elif c >= 0.55: frac, tier = 0.50, "LOW"
+        else:           frac, tier = 0.30, "VERY LOW"
 
-        sized_bet = round(self.config.max_bet_size * bet_fraction, 2)
-        price_cents = int(market.yes_ask * 100) if side == "yes" else int(market.no_ask * 100)
-        cost_per_contract = price_cents / 100
-        count = max(1, int(sized_bet / cost_per_contract))
-        total_cost = round(cost_per_contract * count, 2)
+        bet = round(self.config.max_bet_size * frac, 2)
+        price = (market.yes_ask if side == "yes" else market.no_ask)
+        if price <= 0:
+            price = (market.mid_price if side == "yes" else round(1 - market.mid_price, 4))
+        if price <= 0:
+            log.warning("  No valid price"); return
 
-        log.info(f"  Confidence: {confidence:.0%} ({tier}) → sizing bet at {bet_fraction:.0%} of max = ")
+        count = max(1, int(bet / price))
+        cost  = round(price * count, 2)
+        game_flag = is_game(market.title)
+
+        log.info(f"  Confidence {c:.0%} ({tier}) → ${bet:.2f}")
+        tag = "GAME ✓" if game_flag else "FUTURES"
 
         if self.config.dry_run:
-            log.info(f"  [DRY RUN] Would BUY {side.upper()} | {market.ticker} | {count} contracts @ {price_cents}¢ | Total: ${total_cost:.2f}")
-            self._log_trade(market, side, price_cents, count, total_cost, signal, "dry_run")
-            self.stats.trades_placed += 1
-            self.stats.open_positions += 1
-            self.stats.open_tickers.add(market.ticker)
-            return
-
-        log.info(f"  → EXECUTING: BUY {side.upper()} | {market.ticker} | {count} contracts @ {price_cents}¢ | Total: ${total_cost:.2f}")
-        result = await client.place_order(market.ticker, side, price_cents, count)
-
-        if result:
-            log.info(f"  ✓ Order placed: {result.order_id} | status={result.status}")
-            self._log_trade(market, side, price_cents, count, total_cost, signal, result.status)
-            self.stats.trades_placed += 1
-            self.stats.open_positions += 1
-            self.stats.open_tickers.add(market.ticker)
-            self.stats.daily_pnl -= total_cost  # debit upfront; credit on resolution
+            log.info(f"  [DRY RUN] BUY {side.upper()} {market.ticker} | {count}x @ {price:.0%} | ${cost:.2f} [{tag}]")
         else:
-            log.error("  ✗ Order failed.")
+            result = await client.place_order(market.ticker, side, price, count)
+            if not result:
+                log.error("  Order failed"); return
+            log.info(f"  ✓ BUY {side.upper()} {market.ticker} | {count}x @ {price:.0%} | ${cost:.2f} [{tag}] | id={result.order_id}")
 
-    def _log_trade(self, market, side, price_cents, count, cost, signal, status):
-        self.stats.trade_log.append({
-            "time": datetime.now(timezone.utc).isoformat(),
-            "ticker": market.ticker,
-            "title": market.title[:60],
-            "side": side,
-            "price_cents": price_cents,
-            "contracts": count,
-            "cost_usd": cost,
-            "estimated_prob": signal.estimated_prob,
-            "edge": signal.edge,
-            "confidence": signal.confidence,
-            "reasoning": signal.reasoning[:120],
-            "status": status,
-        })
+        pos = Position(
+            ticker=market.ticker, title=market.title[:80],
+            side=side, entry_price=price, contracts=count, cost=cost,
+            entry_time=datetime.now(timezone.utc).isoformat(),
+            category=category, timeframe=market.timeframe_label,
+            is_game=game_flag,
+        )
+        self.stats.positions[market.ticker] = pos
+        self.stats.placed += 1
+        self._save_trade_log()
 
-    def _print_session_stats(self):
+    def _save_trade_log(self):
+        try:
+            with open("trade_log.json", "w") as f:
+                json.dump({
+                    "last_updated": datetime.now(timezone.utc).isoformat(),
+                    "session": {
+                        "scanned": self.stats.scanned,
+                        "placed": self.stats.placed,
+                        "exited": self.stats.exited,
+                        "skipped": self.stats.skipped,
+                        "positions": self.stats.count,
+                        "realized_pnl": round(self.stats.realized_pnl, 2),
+                        "win_rate": round(self.stats.win_rate, 3),
+                    },
+                    "open_positions": {
+                        t: {"title": p.title, "side": p.side, "entry": p.entry_price,
+                            "contracts": p.contracts, "cost": p.cost,
+                            "timeframe": p.timeframe, "is_game": p.is_game}
+                        for t, p in self.stats.positions.items()
+                    },
+                    "all_time_pnl": self._pnl.get("all_time_pnl", 0),
+                }, f, indent=2)
+        except Exception as e:
+            log.warning(f"trade_log save failed: {e}")
+
+    def _print_stats(self):
         s = self.stats
-        log.info("\n── Session Stats ──────────────────────────────")
-        log.info(f"  Markets scanned : {s.markets_scanned}")
-        log.info(f"  Trades placed   : {s.trades_placed}")
-        log.info(f"  Trades skipped  : {s.trades_skipped}")
-        log.info(f"  Open positions  : {s.open_positions}/{self.config.max_open_positions}")
-        log.info(f"  Daily P&L       : ${s.daily_pnl:+.2f}")
-        log.info("───────────────────────────────────────────────\n")
-
-    def save_results(self):
-        import json
-        from datetime import date
-        filename = f"results_{date.today()}.json"
-        with open(filename, 'w') as f:
-            json.dump(self.stats.trade_log, f, indent=2)
-        log.info(f"Results saved to {filename}")
+        games = sum(1 for p in s.positions.values() if p.is_game)
+        log.info("\n── Stats ──────────────────────────────────────")
+        log.info(f"  Scanned {s.scanned} | Placed {s.placed} | Exited {s.exited} | Skipped {s.skipped}")
+        log.info(f"  Positions: {s.count}/{self.config.max_open_positions} ({games} games)")
+        log.info(f"  Session P&L: ${s.realized_pnl:+.2f} | All-time: ${self._pnl.get('all_time_pnl',0):+.2f}")
+        log.info(f"  Win rate: {s.win_rate:.0%} ({s.wins}W / {s.losses}L)")
+        log.info("──────────────────────────────────────────────\n")

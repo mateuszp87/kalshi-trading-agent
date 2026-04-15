@@ -1,6 +1,11 @@
-import base64
-import datetime
-import logging
+"""
+Kalshi REST API client — April 2026
+- Uses yes_bid_dollars / yes_ask_dollars (new API format)
+- Uses volume_fp for real volume
+- Includes sell_position and get_market for exit management
+"""
+
+import base64, datetime, logging
 import aiohttp
 from dataclasses import dataclass
 from typing import Optional
@@ -15,6 +20,8 @@ try:
     HAS_CRYPTO = True
 except ImportError:
     HAS_CRYPTO = False
+    log.warning("cryptography not installed")
+
 
 @dataclass
 class KalshiMarket:
@@ -32,7 +39,30 @@ class KalshiMarket:
 
     @property
     def mid_price(self) -> float:
-        return round((self.yes_bid + self.yes_ask) / 2, 4)
+        if self.yes_bid > 0 and self.yes_ask > 0:
+            return round((self.yes_bid + self.yes_ask) / 2, 4)
+        return self.yes_ask or self.yes_bid or 0.5
+
+    @property
+    def hours_until_close(self):
+        if not self.close_time:
+            return None
+        try:
+            dt = datetime.datetime.fromisoformat(self.close_time.replace("Z", "+00:00"))
+            return max(0, (dt - datetime.datetime.now(datetime.timezone.utc)).total_seconds() / 3600)
+        except:
+            return None
+
+    @property
+    def timeframe_label(self) -> str:
+        h = self.hours_until_close
+        if h is None:  return "unknown"
+        if h <= 12:    return "TODAY"
+        if h <= 48:    return "TOMORROW"
+        if h <= 168:   return "THIS WEEK"
+        if h <= 720:   return "THIS MONTH"
+        return "LONG-TERM"
+
 
 @dataclass
 class OrderResult:
@@ -44,61 +74,58 @@ class OrderResult:
     status: str
     filled: int = 0
 
+
 def _parse_price(val) -> float:
-    if val is None:
-        return 0.5
+    if val is None: return 0.0
     if isinstance(val, str):
-        return float(val)
+        try: return float(val)
+        except: return 0.0
     if isinstance(val, float):
         return val if val <= 1.0 else val / 100
     if isinstance(val, int):
         return val / 100 if val > 1 else float(val)
-    return 0.5
+    return 0.0
+
+
+def _parse_volume(m: dict) -> int:
+    for key in ("volume_fp", "volume_24h_fp", "volume"):
+        val = m.get(key)
+        if val is not None:
+            try: return int(float(val))
+            except: pass
+    return 0
+
 
 class KalshiClient:
     def __init__(self, api_key: str, base_url: str, private_key_path: str = ""):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self._private_key = None
-        self._session: Optional[aiohttp.ClientSession] = None
-
+        self._session = None
         if private_key_path and HAS_CRYPTO:
             try:
                 with open(private_key_path, "rb") as f:
                     self._private_key = serialization.load_pem_private_key(
                         f.read(), password=None, backend=default_backend()
                     )
-                log.info(f"Loaded RSA private key from {private_key_path}")
+                log.info(f"Loaded RSA key from {private_key_path}")
             except Exception as e:
-                log.warning(f"Could not load private key: {e}")
+                log.error(f"Key load failed: {e}")
 
     def _make_headers(self, method: str, path: str) -> dict:
+        if not self._private_key:
+            return {"Content-Type": "application/json"}
         ts = str(int(datetime.datetime.now().timestamp() * 1000))
-        # Use urlparse exactly as Kalshi docs show
-        sign_path = urlparse(self.base_url + path).path.split('?')[0]
-
-        if self._private_key and HAS_CRYPTO:
-            try:
-                message = f"{ts}{method.upper()}{sign_path}".encode('utf-8')
-                sig_bytes = self._private_key.sign(
-                    message,
-                    padding.PSS(
-                        mgf=padding.MGF1(hashes.SHA256()),
-                        salt_length=padding.PSS.DIGEST_LENGTH,
-                    ),
-                    hashes.SHA256(),
-                )
-                return {
-                    "KALSHI-ACCESS-KEY": self.api_key,
-                    "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig_bytes).decode(),
-                    "KALSHI-ACCESS-TIMESTAMP": ts,
-                    "Content-Type": "application/json",
-                }
-            except Exception as e:
-                log.warning(f"RSA sign failed: {e}")
-
+        sign_path = urlparse(self.base_url + path).path.split("?")[0]
+        sig = self._private_key.sign(
+            f"{ts}{method}{sign_path}".encode(),
+            padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
+            hashes.SHA256(),
+        )
         return {
-            "Authorization": f"Bearer {self.api_key}",
+            "KALSHI-ACCESS-KEY": self.api_key,
+            "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig).decode(),
+            "KALSHI-ACCESS-TIMESTAMP": ts,
             "Content-Type": "application/json",
         }
 
@@ -106,175 +133,136 @@ class KalshiClient:
         self._session = aiohttp.ClientSession()
         return self
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, *a):
         if self._session:
             await self._session.close()
 
-    async def _get(self, path: str, params: dict = None) -> dict:
+    async def _get(self, path, params=None):
         url = f"{self.base_url}{path}"
-        headers = self._make_headers("GET", path)
-        async with self._session.get(url, headers=headers, params=params) as resp:
-            resp.raise_for_status()
-            return await resp.json()
+        async with self._session.get(url, headers=self._make_headers("GET", path), params=params) as r:
+            r.raise_for_status()
+            return await r.json()
 
-    async def _post(self, path: str, payload: dict) -> dict:
+    async def _post(self, path, payload):
         url = f"{self.base_url}{path}"
-        headers = self._make_headers("POST", path)
-        async with self._session.post(url, headers=headers, json=payload) as resp:
-            resp.raise_for_status()
-            return await resp.json()
+        async with self._session.post(url, headers=self._make_headers("POST", path), json=payload) as r:
+            r.raise_for_status()
+            return await r.json()
 
-    async def get_markets(self, keyword: str = "", limit: int = 20, status: str = "open") -> list[KalshiMarket]:
-        params = {"limit": limit, "status": status}
-        if keyword:
-            params["search"] = keyword
+    def _parse_market(self, m: dict, category: str = "") -> KalshiMarket:
+        yes_bid = _parse_price(m.get("yes_bid_dollars") or m.get("yes_bid") or m.get("yes_price"))
+        yes_ask = _parse_price(m.get("yes_ask_dollars") or m.get("yes_ask") or m.get("yes_ask_price"))
+        return KalshiMarket(
+            ticker=m.get("ticker", ""),
+            title=m.get("title", m.get("subtitle", "")),
+            category=category or m.get("category", ""),
+            yes_bid=yes_bid,
+            yes_ask=yes_ask,
+            no_bid=round(1 - yes_ask, 4) if yes_ask > 0 else 0.0,
+            no_ask=round(1 - yes_bid, 4) if yes_bid > 0 else 0.0,
+            volume=_parse_volume(m),
+            open_interest=int(float(m.get("open_interest_fp") or m.get("open_interest") or 0)),
+            close_time=m.get("close_time", m.get("expiration_time", "")),
+            status=m.get("status", "open"),
+        )
+
+    async def get_series_markets(self, series_tickers: list, limit: int = 10) -> list:
+        import random
+        all_markets = []
+        shuffled = series_tickers[:]
+        random.shuffle(shuffled)
+        for ticker in shuffled:
+            try:
+                data = await self._get("/markets", params={"series_ticker": ticker, "status": "open", "limit": limit})
+                for m in data.get("markets", []):
+                    parsed = self._parse_market(m, category=ticker)
+                    if parsed and (parsed.yes_bid > 0 or parsed.yes_ask > 0):
+                        all_markets.append(parsed)
+            except Exception as e:
+                log.warning(f"Series {ticker} failed: {e}")
+        log.info(f"Fetched {len(all_markets)} markets from {len(series_tickers)} series")
+        return all_markets
+
+    async def get_market(self, ticker: str) -> dict:
+        """Get current price for a single ticker (used for exit checks)."""
         try:
-            data = await self._get("/markets", params=params)
-            markets = []
-            for m in data.get("markets", []):
-                yes_bid = _parse_price(m.get("yes_bid") or m.get("yes_price") or 0.5)
-                yes_ask = _parse_price(m.get("yes_ask") or m.get("yes_ask_price") or 0.5)
-                markets.append(KalshiMarket(
-                    ticker=m.get("ticker", ""),
-                    title=m.get("title", m.get("subtitle", m.get("question", ""))),
-                    category=m.get("category", ""),
-                    yes_bid=yes_bid,
-                    yes_ask=yes_ask,
-                    no_bid=round(1 - yes_ask, 4),
-                    no_ask=round(1 - yes_bid, 4),
-                    volume=int(m.get("volume", 0) or 0),
-                    open_interest=int(m.get("open_interest", 0) or 0),
-                    close_time=m.get("close_time", m.get("expiration_time", "")),
-                    status=m.get("status", "open"),
-                ))
-            log.info(f"Fetched {len(markets)} markets (keyword='{keyword}')")
-            return markets
+            data = await self._get(f"/markets/{ticker}")
+            m = data.get("market", data)
+            return {
+                "ticker": ticker,
+                "yes_bid": _parse_price(m.get("yes_bid_dollars") or m.get("yes_bid")),
+                "yes_ask": _parse_price(m.get("yes_ask_dollars") or m.get("yes_ask")),
+                "volume": _parse_volume(m),
+                "status": m.get("status", "open"),
+                "close_time": m.get("close_time", ""),
+            }
         except Exception as e:
-            log.error(f"Error fetching markets: {e}")
-            return []
+            log.warning(f"get_market {ticker}: {e}")
+            return {}
 
     async def get_balance(self) -> float:
         try:
             data = await self._get("/portfolio/balance")
-            bal = data.get("balance", data.get("available_balance", 0))
-            
-            return round(float(bal) / 100, 2)
+            return round(float(data.get("balance", 0)) / 100, 2)
         except Exception as e:
-            log.error(f"Error fetching balance: {e}")
+            log.error(f"Balance error: {e}")
             return 0.0
 
-    async def place_order(self, ticker: str, side: str, price_dollars: float, count: int, order_type: str = "limit") -> Optional[OrderResult]:
+    async def get_positions(self) -> list:
+        try:
+            data = await self._get("/portfolio/positions")
+            return data.get("market_positions", data.get("positions", []))
+        except Exception as e:
+            log.error(f"Positions error: {e}")
+            return []
+
+    async def get_settlements(self) -> list:
+        try:
+            data = await self._get("/portfolio/settlements")
+            return data.get("settlements", [])
+        except Exception as e:
+            log.error(f"Settlements error: {e}")
+            return []
+
+    async def place_order(self, ticker: str, side: str, price_dollars: float, count: int) -> Optional[OrderResult]:
         yes_price = price_dollars if side == "yes" else round(1 - price_dollars, 4)
         payload = {
-            "ticker": ticker,
-            "side": side,
-            "type": order_type,
-            "count": count,
+            "ticker": ticker, "side": side, "type": "limit", "count": count,
             "yes_price": str(round(yes_price, 4)),
             "no_price": str(round(1 - yes_price, 4)),
         }
         try:
             data = await self._post("/portfolio/orders", payload)
-            order = data.get("order", {})
+            o = data.get("order", {})
             return OrderResult(
-                order_id=order.get("id", order.get("order_id", "")),
-                ticker=ticker, side=side, price=yes_price, count=count,
-                status=order.get("status", "unknown"),
-                filled=int(order.get("filled_count", 0)),
+                order_id=o.get("id", ""), ticker=ticker, side=side,
+                price=yes_price, count=count,
+                status=o.get("status", "unknown"),
+                filled=int(o.get("filled_count", 0)),
             )
         except Exception as e:
-            log.error(f"Order failed ({ticker} {side} @{yes_price}): {e}")
+            log.error(f"Order failed ({ticker} {side}): {e}")
             return None
 
-    async def get_events(self, keyword: str = "", limit: int = 25) -> list[KalshiMarket]:
-        """Fetch events endpoint — returns clean single-outcome markets."""
+    async def sell_position(self, ticker: str, side: str, count: int, price_dollars: float) -> Optional[OrderResult]:
+        """Exit an open position early — sell at current market price."""
+        yes_price = price_dollars if side == "yes" else round(1 - price_dollars, 4)
+        payload = {
+            "ticker": ticker, "side": side,
+            "action": "sell",
+            "type": "limit", "count": count,
+            "yes_price": str(round(yes_price, 4)),
+            "no_price": str(round(1 - yes_price, 4)),
+        }
         try:
-            params = {"limit": limit}
-            if keyword:
-                params["search"] = keyword
-            data = await self._get("/events", params=params)
-            markets = []
-            for event in data.get("events", []):
-                # Each event has one or more markets
-                event_markets = event.get("markets", [])
-                event_title = event.get("title", "")
-                event_category = event.get("category", "")
-                if not event_markets:
-                    # Event itself is the market
-                    yes_bid = _parse_price(event.get("yes_bid") or 0.5)
-                    yes_ask = _parse_price(event.get("yes_ask") or 0.5)
-                    markets.append(KalshiMarket(
-                        ticker=event.get("event_ticker", event.get("ticker", "")),
-                        title=event_title,
-                        category=event_category,
-                        yes_bid=yes_bid,
-                        yes_ask=yes_ask,
-                        no_bid=round(1 - yes_ask, 4),
-                        no_ask=round(1 - yes_bid, 4),
-                        volume=int(event.get("volume", 0) or 0),
-                        open_interest=int(event.get("open_interest", 0) or 0),
-                        close_time=event.get("close_time", event.get("end_date", "")),
-                        status=event.get("status", "open"),
-                    ))
-                for market in event_markets:
-                    yes_bid = _parse_price(market.get("yes_bid") or 0.5)
-                    yes_ask = _parse_price(market.get("yes_ask") or 0.5)
-                    title = market.get("title", "") or event_title
-                    markets.append(KalshiMarket(
-                        ticker=market.get("ticker", ""),
-                        title=title,
-                        category=event_category,
-                        yes_bid=yes_bid,
-                        yes_ask=yes_ask,
-                        no_bid=round(1 - yes_ask, 4),
-                        no_ask=round(1 - yes_bid, 4),
-                        volume=int(market.get("volume", 0) or 0),
-                        open_interest=int(market.get("open_interest", 0) or 0),
-                        close_time=market.get("close_time", event.get("end_date", "")),
-                        status=market.get("status", "open"),
-                    ))
-            log.info(f"Fetched {len(markets)} event markets (keyword='{keyword}')")
-            return markets
+            data = await self._post("/portfolio/orders", payload)
+            o = data.get("order", {})
+            return OrderResult(
+                order_id=o.get("id", ""), ticker=ticker, side=side,
+                price=yes_price, count=count,
+                status=o.get("status", "unknown"),
+                filled=int(o.get("filled_count", 0)),
+            )
         except Exception as e:
-            log.error(f"Error fetching events: {e}")
-            return []
-
-    async def get_series_markets(self, series_tickers: list, limit: int = 10) -> list[KalshiMarket]:
-        """Fetch markets from specific series tickers — guaranteed liquid markets."""
-        import random
-        markets = []
-        # Rotate through series randomly for variety
-        random.shuffle(series_tickers)
-        for ticker in series_tickers[:6]:
-            try:
-                data = await self._get("/markets", params={"series_ticker": ticker, "status": "open", "limit": limit})
-                for m in data.get("markets", []):
-                    yes_bid = _parse_price(m.get("yes_bid_dollars") or m.get("yes_bid") or 0.5)
-                    yes_ask = _parse_price(m.get("yes_ask_dollars") or m.get("yes_ask") or 0.5)
-                    if yes_bid == 0.0 and yes_ask == 0.0:
-                        continue  # skip markets with no pricing
-                    markets.append(KalshiMarket(
-                        ticker=m.get("ticker", ""),
-                        title=m.get("title", ""),
-                        category=m.get("category", ticker),
-                        yes_bid=yes_bid,
-                        yes_ask=yes_ask,
-                        no_bid=round(1 - yes_ask, 4),
-                        no_ask=round(1 - yes_bid, 4),
-                        volume=int(float(m.get("volume", m.get("volume_fp", 0)) or 0)),
-                        open_interest=int(float(m.get("open_interest", 0) or 0)),
-                        close_time=m.get("close_time", m.get("expiration_time", "")),
-                        status=m.get("status", "open"),
-                    ))
-            except Exception as e:
-                log.warning(f"Series {ticker} fetch failed: {e}")
-        log.info(f"Fetched {len(markets)} markets from {len(series_tickers)} series")
-        return markets
-
-    async def get_positions(self) -> list[dict]:
-        try:
-            data = await self._get("/portfolio/positions")
-            return data.get("market_positions", data.get("positions", []))
-        except Exception as e:
-            log.error(f"Error fetching positions: {e}")
-            return []
+            log.error(f"Sell failed ({ticker} {side}): {e}")
+            return None

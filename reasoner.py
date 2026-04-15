@@ -1,10 +1,6 @@
-"""
-Claude reasoning engine — scores each market against collected signals.
-Returns a composite probability estimate and trade recommendation.
-"""
+"""Claude scoring engine — game-market focused."""
 
-import json
-import logging
+import json, logging
 import anthropic
 from dataclasses import dataclass
 from typing import Optional
@@ -17,56 +13,81 @@ log = logging.getLogger(__name__)
 class TradeSignal:
     ticker: str
     title: str
-    action: str             # "buy_yes" | "buy_no" | "skip"
-    confidence: float       # 0.0 – 1.0
-    estimated_prob: float   # Claude's probability estimate for YES
-    kalshi_mid: float       # current Kalshi mid price
-    edge: float             # estimated_prob - kalshi_mid (positive = YES has edge)
+    action: str
+    confidence: float
+    estimated_prob: float
+    kalshi_mid: float
+    edge: float
     reasoning: str
-    factor_scores: dict[str, float]
+    factor_scores: dict
 
 
-SYSTEM_PROMPT = """You are a quantitative prediction market analyst specializing in Kalshi markets.
+SYSTEM_PROMPT = """You are a sharp prediction market trader on Kalshi focused on GAME markets.
 
-Your job: given a market question and a set of real-time signals (data from external APIs), 
-estimate the true probability that the YES outcome occurs, and determine whether there is 
-a tradeable edge vs. the current Kalshi market price.
+PRIMARY TARGETS (same-day, resolve fast):
+- NBA game winners, half winners, quarter winners
+- NHL game winners
+- MLB game winners, first 5 innings
+- Champions League / Premier League game winners
+- NBA/NHL playoff series winners and spreads
+- NBA player points props
 
-Rules:
-- Be rigorous and calibrated. Do not be overconfident.
-- Weight signals by their reliability and recency.
-- Account for base rates and historical accuracy of each signal type.
-- If signals conflict, explain why and discount both.
-- Your probability estimate should be your honest best guess, NOT anchored to the market price.
-- Only recommend a trade when |estimated_prob - market_price| > 0.04 (4 cent edge minimum).
+CURRENT CONTEXT (April 2026):
 
-CRITICAL CURRENT EVENTS (April 2026) — use these as strong priors:
-- SCOTUS Alito (KXSCOTUSRESIGN-29-SA): HIGH retirement probability ~50-70%. Book releasing Oct 2026 day after term starts, wife wants him out, had hospital visit, Senate GOP actively preparing for vacancy. Kalshi at 71% YES is REASONABLE — do NOT buy NO here.
-- SCOTUS Thomas (KXSCOTUSRESIGN-29-CT): LOW ~15-20%. No retirement signals, ideologically committed.
-- SCOTUS Roberts (KXSCOTUSRESIGN-29-JR): LOW ~8-12%. Chief Justice, no signals.
-- SCOTUS Sotomayor (KXSCOTUSRESIGN-29-SS): VERY LOW ~5%. Would not resign under Trump.
-- NYC April 15 temperature: Forecast 85F high. ALL-TIME RECORD for Apr 15 is 87F set in 1941. This means: >90F impossible (~1-2%) — STRONG NO. 89-90F essentially impossible (~3%) — STRONG NO. 87-88F very unlikely, near record (~8%) — NO. 85-86F most likely outcome (~35-40%) — BUY YES. 83-84F possible (~20%) — slight YES lean. <83F unlikely given 85F forecast (~10%) — NO or skip. DO buy YES on 85-86F range (KXHIGHNY-26APR15-B85.5). DO buy NO on >90F and 89-90F ranges.
-- CPI trends: Currently 3.29% YoY, tariff impacts may push higher in coming months.
+NBA PLAYOFFS:
+- Portland Trail Blazers vs Phoenix Suns  — Suns ~68% favorite
+- Orlando Magic vs Philadelphia 76ers     — Philly ~53% at home
+- Golden State Warriors vs LA Clippers   — Warriors ~65%
+- Toronto Raptors vs Cleveland Cavaliers  — Cleveland ~75%
+- Atlanta Hawks vs New York Knicks        — Knicks ~60%
+Home court in NBA playoffs: ~58%. Half-winner matches full-game winner ~75%.
 
-For NBA/MLB championship markets:
-- KXNBAEAST: Current NBA Eastern Conference playoffs. Boston Celtics and Cleveland Cavaliers are top seeds. Indiana Pacers, Milwaukee Bucks, Detroit Pistons, Orlando Magic, Miami Heat, Atlanta Hawks are competing. Use current standings.
-- KXNBAWEST: Oklahoma City Thunder and Houston Rockets are top seeds. Denver Nuggets, Memphis Grizzlies, LA Lakers, Golden State Warriors competing.
-- KXNBA Finals: OKC Thunder and Boston Celtics are current favorites at ~25-30% each.
-- KXMLB: Dodgers are heavy World Series favorites (~25%). Yankees, Phillies, Braves competing.
-- For any market at 1-3 cents: these are likely correct (extreme longshots). Skip unless you have strong evidence.
-- For any market at 15-30 cents: evaluate carefully — these are the interesting ones with real edge potential.
-- For championship markets, use implied probabilities: if a team is 18¢ on Kalshi but Vegas has them at 25%, that is a buy.
+NHL PLAYOFFS:
+- Detroit Red Wings vs Florida Panthers   — Florida ~68%
+- Dallas Stars vs Buffalo Sabres          — Stars ~52%
+- Toronto Maple Leafs vs Ottawa Senators  — Leafs ~62%
+- Seattle Kraken vs Vegas Golden Knights  — Vegas ~60%
+- Philadelphia Flyers vs Pittsburgh       — Flyers ~55%
+Home court in NHL: ~55%.
 
-Respond ONLY with valid JSON in this exact format:
+CHAMPIONS LEAGUE SEMIS (Apr 29):
+- Bayern Munich vs Real Madrid  — Real Madrid ~58% to advance
+- Arsenal vs Sporting CP        — Arsenal ~75%
+
+MLB (April, early season):
+- Small sample, use Vegas line. Home team ~54%.
+
+CRYPTO (April 15 2026):
+- BTC ~$74k, ETH ~$2330. Fear & Greed 21 (Extreme Fear).
+- Daily markets: compare current price vs strike precisely.
+
+WEATHER:
+- NYC Apr 15: forecast ~85F. Record = 87F (1941). >90F impossible.
+
+SCOTUS ALITO: ~60% retirement this year. Market at 71% YES is reasonable — do NOT buy NO.
+
+RULES:
+- Multi-leg parlays: true probability = product of each leg. "yes Team A, yes Player B 20+" at 50% is almost always overpriced.
+- Wide spreads (>30 cents bid-ask) = low liquidity = skip unless very confident.
+- If signals don't match market, say so and use base rates only.
+- Never anchor to Kalshi price — form independent estimate first.
+
+EDGE THRESHOLDS (enforced by agent):
+- Same-day game:  4 cents minimum
+- This week:      6 cents minimum
+- This month:     8 cents + confidence >70%
+- Long-term:     12 cents + confidence >80%
+
+SIZING (report your confidence, agent handles sizing):
+- 85%+  → $5.00  | 70-85% → $3.50  | 55-70% → $2.50  | <55% → $1.50
+
+Respond ONLY with valid JSON — no markdown, no preamble:
 {
   "estimated_prob": <float 0.0-1.0>,
   "action": "<buy_yes|buy_no|skip>",
   "confidence": <float 0.0-1.0>,
-  "reasoning": "<2-3 sentence explanation>",
-  "factor_scores": {
-    "<factor_name>": <float 0.0-1.0>,
-    ...
-  }
+  "reasoning": "<2-3 sentences>",
+  "factor_scores": {"<factor>": <float>}
 }"""
 
 
@@ -75,76 +96,52 @@ class ClaudeReasoner:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
 
-    def score_market(
-        self,
-        market: KalshiMarket,
-        signals: dict,
-        category: str,
-    ) -> Optional[TradeSignal]:
-        """
-        Ask Claude to evaluate a market given collected signals.
-        signals: dict of {factor_name: {value, description, raw_data}}
-        """
-        signals_text = self._format_signals(signals)
-
-        user_prompt = f"""
-MARKET: {market.title}
+    def score_market(self, market: KalshiMarket, signals: dict, category: str) -> Optional[TradeSignal]:
+        h = market.hours_until_close
+        prompt = f"""MARKET: {market.title}
 TICKER: {market.ticker}
 CATEGORY: {category}
-CURRENT KALSHI PRICE: YES={market.yes_bid:.2f} bid / {market.yes_ask:.2f} ask (mid={market.mid_price:.2f})
-VOLUME: {market.volume:,} contracts | OPEN INTEREST: {market.open_interest:,}
-CLOSES: {market.close_time}
+TIMEFRAME: {market.timeframe_label} ({f'{h:.1f}h' if h else '?'} until close)
+PRICE: YES bid={market.yes_bid:.2f} ask={market.yes_ask:.2f} mid={market.mid_price:.2f}
+VOLUME: {market.volume:,} | CLOSES: {market.close_time}
 
-SIGNALS FROM EXTERNAL DATA SOURCES:
-{signals_text}
+SIGNALS:
+{self._fmt(signals)}
 
-Based on these signals, estimate the true probability that YES resolves correctly.
-Compare to the Kalshi mid price ({market.mid_price:.2f}) and recommend a trade if edge > 5%.
-"""
+Estimate true YES probability. Recommend trade if edge meets threshold for {market.timeframe_label}."""
 
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=400,
+            resp = self.client.messages.create(
+                model=self.model, max_tokens=400,
                 system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
+                messages=[{"role": "user", "content": prompt}],
             )
-            raw = response.content[0].text.strip()
-            # Strip markdown fences if present
+            raw = resp.content[0].text.strip()
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
+                if raw.startswith("json"): raw = raw[4:]
             data = json.loads(raw)
-
-            estimated_prob = float(data["estimated_prob"])
-            action = data.get("action", "skip")
-            edge = round(estimated_prob - market.mid_price, 4)
-
+            ep = float(data["estimated_prob"])
             return TradeSignal(
-                ticker=market.ticker,
-                title=market.title,
-                action=action,
+                ticker=market.ticker, title=market.title,
+                action=data.get("action", "skip"),
                 confidence=float(data.get("confidence", 0.5)),
-                estimated_prob=estimated_prob,
+                estimated_prob=ep,
                 kalshi_mid=market.mid_price,
-                edge=edge,
+                edge=round(ep - market.mid_price, 4),
                 reasoning=data.get("reasoning", ""),
                 factor_scores=data.get("factor_scores", {}),
             )
-
-        except (json.JSONDecodeError, KeyError, Exception) as e:
-            log.error(f"Claude scoring failed for {market.ticker}: {e}")
+        except Exception as e:
+            log.error(f"Claude failed {market.ticker}: {e}")
             return None
 
-    def _format_signals(self, signals: dict) -> str:
+    def _fmt(self, signals: dict) -> str:
+        if not signals:
+            return "  None — use base rates and market title only."
         lines = []
-        for factor, info in signals.items():
-            val = info.get("value", "N/A")
-            desc = info.get("description", "")
-            raw = info.get("raw", "")
-            line = f"  [{factor}] value={val} | {desc}"
-            if raw:
-                line += f"\n    raw: {str(raw)[:200]}"
+        for k, v in signals.items():
+            line = f"  [{k}] value={v.get('value','?')} | {v.get('description','')}"
+            if v.get("raw"): line += f"\n    raw: {str(v['raw'])[:200]}"
             lines.append(line)
-        return "\n".join(lines) if lines else "  No signals available."
+        return "\n".join(lines)
