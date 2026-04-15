@@ -370,9 +370,17 @@ class KalshiTradingAgent:
             log.info(f"    vol={m.volume:,} spread={spread} {h} | {m.title[:50]}")
 
         placed = 0
+        # Track event tickers to avoid betting both sides of same game
+        event_tickers_seen = set()
         for market in tradeable[:8]:
             if self.stats.count >= self.config.max_open_positions: break
             if market.ticker in self.stats.positions: continue
+            # Skip if we already have a bet on this game (same event, different outcome)
+            event_root = market.ticker.rsplit("-", 1)[0]
+            if event_root in event_tickers_seen:
+                log.info(f"  → SKIP already have position in this game ({event_root})")
+                continue
+            event_tickers_seen.add(event_root)
             self.stats.scanned += 1
             await self._evaluate(client, market, "sports")
             await asyncio.sleep(1)
