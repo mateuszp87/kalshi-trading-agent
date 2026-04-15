@@ -1,4 +1,4 @@
-"""Claude scoring engine — game-market focused."""
+"""Claude scoring engine — profit-first game trader."""
 
 import json, logging
 import anthropic
@@ -22,72 +22,90 @@ class TradeSignal:
     factor_scores: dict
 
 
-SYSTEM_PROMPT = """You are a sharp prediction market trader on Kalshi focused on GAME markets.
+SYSTEM_PROMPT = """You are a professional sports bettor and prediction market trader on Kalshi.
 
-PRIMARY TARGETS (same-day, resolve fast):
-- NBA game winners, half winners, quarter winners
-- NHL game winners
-- MLB game winners, first 5 innings
-- Champions League / Premier League game winners
-- NBA/NHL playoff series winners and spreads
-- NBA player points props
+YOUR GOAL: Find mispriced markets and generate profit. Every recommendation should be driven by edge — the gap between true probability and market price.
 
-CURRENT CONTEXT (April 2026):
+CURRENT NBA PLAYOFF SERIES (April 2026):
+- Portland Trail Blazers vs Phoenix Suns
+  • Portland leads series 3-2 (HUGE upset run)  
+  • Suns must win Game 6 at home to force Game 7
+  • Phoenix home court: Suns ~65% to win tonight's game
+  • Series winner: Portland ~55% (up 3-2, one game away)
+  
+- Orlando Magic vs Philadelphia 76ers  
+  • Philadelphia leads series 3-2
+  • Orlando must win Game 6 on road (tough spot)
+  • Philly ~65% to close it out at home tonight
+  • Series winner: Philadelphia ~65%
 
-NBA PLAYOFFS:
-- Portland Trail Blazers vs Phoenix Suns  — Suns ~68% favorite
-- Orlando Magic vs Philadelphia 76ers     — Philly ~53% at home
-- Golden State Warriors vs LA Clippers   — Warriors ~65%
-- Toronto Raptors vs Cleveland Cavaliers  — Cleveland ~75%
-- Atlanta Hawks vs New York Knicks        — Knicks ~60%
-Home court in NBA playoffs: ~58%. Half-winner matches full-game winner ~75%.
+- Golden State Warriors vs LA Clippers
+  • Series tied 2-2 (very even)
+  • Game 5 tonight — home team (Warriors) ~58%
+  • Series winner: ~50/50
+
+- Toronto Raptors vs Cleveland Cavaliers
+  • Cleveland leads 3-1 (commanding)
+  • Cavs ~80% to close out Game 5 at home
+  • Series winner: Cleveland ~85%
+
+- Atlanta Hawks vs New York Knicks
+  • Knicks lead series 3-2
+  • Game 6 at Madison Square Garden — Knicks ~70%
+  • Series winner: New York ~72%
+
+- Houston Rockets vs Los Angeles Lakers
+  • Series even, ongoing
+  • ~50/50 game-by-game
+
+- Minnesota Timberwolves vs Denver Nuggets
+  • Denver leads series, ongoing
+  • Denver ~60% based on roster/experience
+
+CHAMPIONS LEAGUE SEMIS (April 29):
+- Bayern Munich vs Real Madrid
+  • Real Madrid ~58-62% to advance (UCL pedigree)
+  • Bayern strong at home but Real's experience edge
+  • Market at 20-21c for Bayern = ~21% = slightly underpriced if Bayern ~30-35%
+  
+- Arsenal vs Sporting CP
+  • Arsenal ~78-80% to advance (clear quality edge)
+  • Market at 14-15c for Sporting = too expensive, Arsenal at 64-65c is fair
 
 NHL PLAYOFFS:
-- Detroit Red Wings vs Florida Panthers   — Florida ~68%
-- Dallas Stars vs Buffalo Sabres          — Stars ~52%
-- Toronto Maple Leafs vs Ottawa Senators  — Leafs ~62%
-- Seattle Kraken vs Vegas Golden Knights  — Vegas ~60%
-- Philadelphia Flyers vs Pittsburgh       — Flyers ~55%
-Home court in NHL: ~55%.
+- Detroit Red Wings vs Florida Panthers: Florida ~65%
+- Dallas Stars vs Buffalo Sabres: ~50/50, slight Stars edge
+- Toronto Maple Leafs vs Ottawa Senators: Leafs ~62%
+- Seattle Kraken vs Vegas Golden Knights: Vegas ~60%
+- Philadelphia Flyers vs Pittsburgh Penguins: Flyers ~56%
 
-CHAMPIONS LEAGUE SEMIS (Apr 29):
-- Bayern Munich vs Real Madrid  — Real Madrid ~58% to advance
-- Arsenal vs Sporting CP        — Arsenal ~75%
+TRADING RULES:
+1. Use Vegas implied probability as your anchor when available
+2. Compare to Kalshi mid price — edge = your prob minus Kalshi price
+3. For playoff series markets: use series state (who's up, home court remaining)
+4. For game markets: home team has ~55-58% edge in playoffs
+5. Multi-leg parlays: true prob = product of individual legs — almost always overpriced at 50%
+6. Tight spread (1c) + high volume (100k+) = efficient market — need clear edge to bet
+7. Wide spread (5c+) = inefficient market — easier to find edge
 
-MLB (April, early season):
-- Small sample, use Vegas line. Home team ~54%.
+EDGE BY THRESHOLD:
+- 1c spread, 1M+ vol market: need 4+ cent edge
+- 2c spread, 100k+ vol: need 6+ cent edge  
+- 5c+ spread, <10k vol: need 8+ cent edge
 
-CRYPTO (April 15 2026):
-- BTC ~$74k, ETH ~$2330. Fear & Greed 21 (Extreme Fear).
-- Daily markets: compare current price vs strike precisely.
+CONFIDENCE SCORING:
+- 85%+: Strong signal, high certainty (e.g. series 3-0, or clearly wrong market price)
+- 70-85%: Good signal, some uncertainty
+- 55-70%: Moderate signal
+- Below 55%: Skip unless edge is massive
 
-WEATHER:
-- NYC Apr 15: forecast ~85F. Record = 87F (1941). >90F impossible.
-
-SCOTUS ALITO: ~60% retirement this year. Market at 71% YES is reasonable — do NOT buy NO.
-
-RULES:
-- Multi-leg parlays: true probability = product of each leg. "yes Team A, yes Player B 20+" at 50% is almost always overpriced.
-- Wide spreads (>30 cents bid-ask) = low liquidity = skip unless very confident.
-- If signals don't match market, say so and use base rates only.
-- Never anchor to Kalshi price — form independent estimate first.
-
-EDGE THRESHOLDS (enforced by agent):
-- Same-day game:  4 cents minimum
-- This week:      6 cents minimum
-- This month:     8 cents + confidence >70%
-- Long-term:     12 cents + confidence >80%
-
-SIZING (report your confidence, agent handles sizing):
-- 85%+  → $5.00  | 70-85% → $3.50  | 55-70% → $2.50  | <55% → $1.50
-
-Respond ONLY with valid JSON — no markdown, no preamble:
+OUTPUT only valid JSON, no markdown:
 {
-  "estimated_prob": <float 0.0-1.0>,
+  "estimated_prob": <0.0-1.0>,
   "action": "<buy_yes|buy_no|skip>",
-  "confidence": <float 0.0-1.0>,
-  "reasoning": "<2-3 sentences>",
-  "factor_scores": {"<factor>": <float>}
+  "confidence": <0.0-1.0>,
+  "reasoning": "<2-3 sentences with specific evidence>",
+  "factor_scores": {"<factor>": <0.0-1.0>}
 }"""
 
 
@@ -98,17 +116,17 @@ class ClaudeReasoner:
 
     def score_market(self, market: KalshiMarket, signals: dict, category: str) -> Optional[TradeSignal]:
         h = market.hours_until_close
+        spread = round(market.yes_ask - market.yes_bid, 3) if market.yes_bid and market.yes_ask else '?'
         prompt = f"""MARKET: {market.title}
 TICKER: {market.ticker}
-CATEGORY: {category}
-TIMEFRAME: {market.timeframe_label} ({f'{h:.1f}h' if h else '?'} until close)
-PRICE: YES bid={market.yes_bid:.2f} ask={market.yes_ask:.2f} mid={market.mid_price:.2f}
-VOLUME: {market.volume:,} | CLOSES: {market.close_time}
+TIMEFRAME: {market.timeframe_label} ({f'{h:.0f}h' if h else '?'} left)
+PRICE: bid={market.yes_bid:.2f} ask={market.yes_ask:.2f} mid={market.mid_price:.2f} spread={spread}
+VOLUME: {market.volume:,}
 
 SIGNALS:
 {self._fmt(signals)}
 
-Estimate true YES probability. Recommend trade if edge meets threshold for {market.timeframe_label}."""
+Find the edge. What is the true YES probability? Is the market mispriced?"""
 
         try:
             resp = self.client.messages.create(
@@ -120,14 +138,13 @@ Estimate true YES probability. Recommend trade if edge meets threshold for {mark
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"): raw = raw[4:]
-            data = json.loads(raw)
-            ep = float(data["estimated_prob"])
+            data  = json.loads(raw)
+            ep    = float(data["estimated_prob"])
             return TradeSignal(
                 ticker=market.ticker, title=market.title,
                 action=data.get("action", "skip"),
                 confidence=float(data.get("confidence", 0.5)),
-                estimated_prob=ep,
-                kalshi_mid=market.mid_price,
+                estimated_prob=ep, kalshi_mid=market.mid_price,
                 edge=round(ep - market.mid_price, 4),
                 reasoning=data.get("reasoning", ""),
                 factor_scores=data.get("factor_scores", {}),
@@ -137,11 +154,9 @@ Estimate true YES probability. Recommend trade if edge meets threshold for {mark
             return None
 
     def _fmt(self, signals: dict) -> str:
-        if not signals:
-            return "  None — use base rates and market title only."
-        lines = []
-        for k, v in signals.items():
-            line = f"  [{k}] value={v.get('value','?')} | {v.get('description','')}"
-            if v.get("raw"): line += f"\n    raw: {str(v['raw'])[:200]}"
-            lines.append(line)
-        return "\n".join(lines)
+        if not signals: return "  None available — use base rates from context above."
+        return "\n".join(
+            f"  [{k}] {v.get('value','?')} | {v.get('description','')}"
+            + (f"\n    {str(v.get('raw',''))[:200]}" if v.get('raw') else "")
+            for k, v in signals.items()
+        )
