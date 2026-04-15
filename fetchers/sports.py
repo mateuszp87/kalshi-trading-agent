@@ -43,6 +43,17 @@ MLB_CONTEXT = {
 }
 
 async def fetch_sports_signals(market_title: str, api_key: str = "") -> dict:
+    title_lower = market_title.lower()
+    # Soccer games get minimal signals — Claude has better base knowledge
+    soccer_leagues = ["ucl", "epl", "champions league", "premier league", 
+                      "la liga", "serie a", "bundesliga", "arsenal", "madrid",
+                      "bayern", "sporting", "manchester", "chelsea", "barcelona"]
+    if any(term in title_lower for term in soccer_leagues):
+        return {"sport_context": {
+            "value": 0.5,
+            "description": f"Soccer/football game: {market_title}. Use your base knowledge of team quality and UCL/league performance. Do not use NBA or baseball signals.",
+            "raw": {}
+        }}
     """
     Determine sport from market title, then fetch:
     - Upcoming game lines (The Odds API)
