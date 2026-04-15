@@ -270,7 +270,9 @@ class KalshiTradingAgent:
         if not self.stats.positions:
             return
         tickers = list(self.stats.positions.keys())
-        log.info(f"\n[EXIT CHECK] {len(tickers)} open positions")
+        log.info(f"\n[EXIT CHECK] {len(tickers)} positions | limit={self.config.max_open_positions}")
+
+        position_status = []  # track all positions with current P&L
 
         for ticker in tickers:
             pos = self.stats.positions.get(ticker)
@@ -282,29 +284,69 @@ class KalshiTradingAgent:
 
             yes_bid = mkt.get("yes_bid", 0)
             yes_ask = mkt.get("yes_ask", 0)
+            status  = mkt.get("status", "open")
 
-            # How much has our position moved?
             if pos.side == "yes":
-                current = yes_bid          # sell YES → get bid
+                current = yes_bid
                 move = current - pos.entry_price
             else:
                 current = round(1 - yes_ask, 4) if yes_ask else 0
                 move = current - pos.entry_price
 
             unreal = round(move * pos.contracts, 2)
-            log.info(f"  {ticker[:38]} {pos.side.upper()} {pos.contracts}x | entry={pos.entry_price:.2f} now={current:.2f} | move={move:+.2f} | unrealized=${unreal:+.2f}")
+            log.info(f"  {ticker[:36]} {pos.side.upper()} {pos.contracts}x | entry={pos.entry_price:.2f} now={current:.2f} | move={move:+.2f} | P&L=${unreal:+.2f} | {pos.timeframe}")
 
+            position_status.append({
+                "ticker": ticker, "pos": pos,
+                "current": current, "move": move,
+                "unreal": unreal, "status": status,
+                "is_game": pos.is_game,
+            })
+
+        # ── Mandatory exits: take profit / stop loss ──────────────
+        to_exit = []
+        for ps in position_status:
             reason = ""
-            if move >= TAKE_PROFIT:
-                reason = f"TAKE PROFIT +{move:.2f}"
-            elif move <= -STOP_LOSS:
-                reason = f"STOP LOSS {move:.2f}"
+            if ps["move"] >= TAKE_PROFIT:
+                reason = f"TAKE PROFIT +{ps['move']:.2f}"
+            elif ps["move"] <= -STOP_LOSS:
+                reason = f"STOP LOSS {ps['move']:.2f}"
+            elif ps["status"] == "finalized":
+                reason = "MARKET CLOSED"
+            if reason:
+                to_exit.append((ps, reason))
 
-            if not reason:
-                continue
+        # ── At position limit: evict worst non-game positions ─────
+        # If we are full AND there are long-term positions losing money,
+        # exit the worst one to free a slot for a better game trade
+        at_limit = self.stats.count >= self.config.max_open_positions
+        if at_limit:
+            log.info(f"  ⚠️  At position limit — scanning for positions to evict...")
+            # Find non-game positions with slight losses (not catastrophic, just underperforming)
+            eviction_candidates = [
+                ps for ps in position_status
+                if not ps["is_game"]                       # long-term future, not a game
+                and ps["move"] < -0.05                     # losing more than 5 cents
+                and not any(ps["ticker"] == e[0]["ticker"] for e in to_exit)  # not already exiting
+            ]
+            # Sort by worst move first (biggest losers get evicted first)
+            eviction_candidates.sort(key=lambda x: x["move"])
+            if eviction_candidates:
+                worst = eviction_candidates[0]
+                log.info(f"  🔄 EVICTING worst non-game position to free slot:")
+                log.info(f"     {worst['ticker']} | move={worst['move']:.2f} | {worst['pos'].timeframe}")
+                to_exit.append((worst, f"EVICT — freeing slot for game trade (move={worst['move']:.2f})"))
+            else:
+                log.info(f"  No eviction candidates — all positions are games or not losing enough")
 
+        # ── Execute all exits ─────────────────────────────────────
+        for ps, reason in to_exit:
+            ticker  = ps["ticker"]
+            pos     = ps["pos"]
+            current = ps["current"]
             proceeds = round(current * pos.contracts, 2)
-            pnl = round(proceeds - pos.cost, 2)
+            pnl      = round(proceeds - pos.cost, 2)
+
             log.info(f"  → EXIT [{reason}] | {pos.contracts}x @ {current:.2f} | P&L ${pnl:+.2f}")
 
             if not self.config.dry_run:
@@ -330,7 +372,8 @@ class KalshiTradingAgent:
                 "time": datetime.now(timezone.utc).isoformat(),
             })
             self._save_pnl()
-            del self.stats.positions[ticker]
+            if ticker in self.stats.positions:
+                del self.stats.positions[ticker]
 
     # ── Market scan ──────────────────────────────────────────
     async def _scan(self, client):
