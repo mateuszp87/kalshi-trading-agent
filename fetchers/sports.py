@@ -44,6 +44,19 @@ MLB_CONTEXT = {
 
 async def fetch_sports_signals(market_title: str, api_key: str = "") -> dict:
     title_lower = market_title.lower()
+    soccer_terms = ["ucl", "epl", "champions league", "premier league",
+                    "la liga", "serie a", "bundesliga", "arsenal", "real madrid",
+                    "bayern", "sporting", "manchester", "chelsea", "barcelona",
+                    "tottenham", "liverpool", "milan", "juventus", "atletico",
+                    "inter", "napoli", "dortmund", "psg", "ajax", "porto",
+                    "benfica", "celtic", "rangers", "leeds", "burnley"]
+    if any(t in title_lower for t in soccer_terms):
+        return {"soccer_context": {
+            "value": 0.5,
+            "description": f"Soccer match: {market_title}. Use your knowledge of UCL/league form, head-to-head records, home advantage. Ignore any NBA/MLB signals.",
+            "raw": {}
+        }}
+    title_lower = market_title.lower()
     # Soccer games get minimal signals — Claude has better base knowledge
     soccer_leagues = ["ucl", "epl", "champions league", "premier league", 
                       "la liga", "serie a", "bundesliga", "arsenal", "madrid",

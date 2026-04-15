@@ -366,7 +366,14 @@ class KalshiTradingAgent:
             priced.sort(key=priority_score, reverse=True)
             game_ct = sum(1 for m in priced if is_game(m.title))
             today_ct = sum(1 for m in priced if m.hours_until_close is not None and m.hours_until_close <= 24)
-            log.info(f"  {len(priced)} priced | {game_ct} games | {today_ct} today | scoring top 5...")
+
+            # Prefer markets closing within 7 days — skip long-term if short-term exists
+            short_term = [m for m in priced if m.hours_until_close is not None and m.hours_until_close <= 168]
+            if short_term:
+                priced = short_term
+                log.info(f"  {len(priced)} priced (filtered to ≤7 days) | {game_ct} games | {today_ct} today | scoring top 5...")
+            else:
+                log.info(f"  {len(priced)} priced | {game_ct} games | {today_ct} today | scoring top 5 (no short-term found)...")
 
             for market in priced[:5]:
                 if self.stats.count >= self.config.max_open_positions:
