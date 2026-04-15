@@ -381,49 +381,94 @@ class KalshiTradingAgent:
         log.info(f"SCAN — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
         log.info("=" * 60)
 
-        for category in self.config.active_categories:
-            cat_cfg = CATEGORY_CONFIG[category]
-            log.info(f"\n[{category.upper()}]")
+        slots_available = self.config.max_open_positions - self.stats.count
+        log.info(f"  Open slots: {slots_available}/{self.config.max_open_positions}")
 
-            series = GAME_SERIES.get(category, [])
-            markets = await client.get_series_markets(series, limit=10)
+        if slots_available <= 0:
+            log.info("  No open slots — exit management only this cycle")
+            return
 
-            # Sports: prioritize game markets, append season markets as fallback
-            if category == "sports":
-                games = [m for m in markets if is_game(m.title)]
-                others = [m for m in markets if not is_game(m.title)]
-                if not games:
-                    log.info("  No priced games — adding season fallback...")
-                    fallback = await client.get_series_markets(SEASON_SERIES, limit=5)
-                    markets = others + fallback
-                else:
-                    markets = games + others
+        # ── SPORTS FIRST: only real game markets ──────────────────
+        log.info(f"\n[SPORTS] Scanning game markets...")
+        game_markets = await client.get_series_markets(GAME_SERIES["sports"], limit=12)
 
-            if not markets:
-                log.info("  No markets."); continue
+        # Filter to only actual games with pricing, closing within 7 days
+        priced_games = [
+            m for m in game_markets
+            if (m.yes_bid > 0 or m.yes_ask > 0)
+            and is_game(m.title)
+            and m.hours_until_close is not None
+            and m.hours_until_close <= 168  # within 7 days
+        ]
+        priced_games.sort(key=priority_score, reverse=True)
 
-            priced = [m for m in markets if m.yes_bid > 0 or m.yes_ask > 0]
-            if not priced:
-                log.info(f"  {len(markets)} found, none priced yet."); continue
+        today_ct = sum(1 for m in priced_games if m.hours_until_close <= 24)
+        log.info(f"  {len(priced_games)} priced games within 7 days | {today_ct} today")
 
-            priced.sort(key=priority_score, reverse=True)
-            game_ct = sum(1 for m in priced if is_game(m.title))
-            today_ct = sum(1 for m in priced if m.hours_until_close is not None and m.hours_until_close <= 24)
+        placed = 0
+        for market in priced_games[:8]:
+            if self.stats.count >= self.config.max_open_positions:
+                break
+            self.stats.scanned += 1
+            await self._evaluate(client, market, "sports", CATEGORY_CONFIG["sports"])
+            await asyncio.sleep(1)
+            placed += 1
 
-            # Prefer markets closing within 7 days — skip long-term if short-term exists
-            short_term = [m for m in priced if m.hours_until_close is not None and m.hours_until_close <= 168]
-            if short_term:
-                priced = short_term
-                log.info(f"  {len(priced)} priced (filtered to ≤7 days) | {game_ct} games | {today_ct} today | scoring top 5...")
-            else:
-                log.info(f"  {len(priced)} priced | {game_ct} games | {today_ct} today | scoring top 5 (no short-term found)...")
-
-            for market in priced[:5]:
+        # ── CRYPTO: daily BTC/ETH markets ─────────────────────────
+        if self.stats.count < self.config.max_open_positions:
+            log.info(f"\n[CRYPTO] Scanning daily crypto markets...")
+            crypto_mkts = await client.get_series_markets(GAME_SERIES["crypto"], limit=10)
+            priced_crypto = [
+                m for m in crypto_mkts
+                if (m.yes_bid > 0 or m.yes_ask > 0)
+                and m.hours_until_close is not None
+                and m.hours_until_close <= 24  # today only for crypto
+            ]
+            priced_crypto.sort(key=priority_score, reverse=True)
+            log.info(f"  {len(priced_crypto)} priced crypto markets today")
+            for market in priced_crypto[:3]:
                 if self.stats.count >= self.config.max_open_positions:
-                    log.info("  Position limit — skipping rest"); break
+                    break
                 self.stats.scanned += 1
-                await self._evaluate(client, market, category, cat_cfg)
+                await self._evaluate(client, market, "crypto", CATEGORY_CONFIG["crypto"])
                 await asyncio.sleep(1)
+
+        # ── WEATHER: daily NYC temp ────────────────────────────────
+        if self.stats.count < self.config.max_open_positions:
+            log.info(f"\n[WEATHER] Scanning daily weather markets...")
+            wx_mkts = await client.get_series_markets(GAME_SERIES["weather"], limit=10)
+            priced_wx = [
+                m for m in wx_mkts
+                if (m.yes_bid > 0 or m.yes_ask > 0)
+                and m.hours_until_close is not None
+                and m.hours_until_close <= 24
+            ]
+            priced_wx.sort(key=priority_score, reverse=True)
+            log.info(f"  {len(priced_wx)} priced weather markets today")
+            for market in priced_wx[:3]:
+                if self.stats.count >= self.config.max_open_positions:
+                    break
+                self.stats.scanned += 1
+                await self._evaluate(client, market, "weather", CATEGORY_CONFIG["weather"])
+                await asyncio.sleep(1)
+
+        # ── FALLBACK: econ/politics only if nothing else found ─────
+        if placed == 0 and self.stats.count < self.config.max_open_positions:
+            log.info(f"\n[FALLBACK] No game markets found — scanning econ/politics...")
+            for category in ["econ", "politics"]:
+                if self.stats.count >= self.config.max_open_positions:
+                    break
+                cat_cfg = CATEGORY_CONFIG[category]
+                mkts = await client.get_series_markets(GAME_SERIES.get(category, []), limit=8)
+                priced = [m for m in mkts if (m.yes_bid > 0 or m.yes_ask > 0)]
+                priced.sort(key=priority_score, reverse=True)
+                log.info(f"  [{category.upper()}] {len(priced)} priced markets")
+                for market in priced[:3]:
+                    if self.stats.count >= self.config.max_open_positions:
+                        break
+                    self.stats.scanned += 1
+                    await self._evaluate(client, market, category, cat_cfg)
+                    await asyncio.sleep(1)
 
     async def _evaluate(self, client, market: KalshiMarket, category: str, cat_cfg: dict):
         if market.ticker in self.stats.positions:
