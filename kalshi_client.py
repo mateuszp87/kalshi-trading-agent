@@ -228,12 +228,19 @@ class KalshiClient:
         yes_price = price_dollars if side == "yes" else round(1 - price_dollars, 4)
         yes_cents = max(1, min(99, int(round(yes_price * 100))))
         no_cents = 100 - yes_cents
-        # Try integer cents format first (current API)
-        payload = {
-            "ticker": ticker, "side": side, "type": "limit", "count": int(count),
-            "yes_price": yes_cents, "no_price": no_cents,
-            "action": "buy",
-        }
+        # Kalshi wants EXACTLY ONE price field based on side
+        if side == "yes":
+            payload = {
+                "ticker": ticker, "side": "yes", "type": "limit",
+                "count": int(count), "action": "buy",
+                "yes_price": yes_cents,
+            }
+        else:
+            payload = {
+                "ticker": ticker, "side": "no", "type": "limit",
+                "count": int(count), "action": "buy",
+                "no_price": no_cents,
+            }
         try:
             data = await self._post("/portfolio/orders", payload)
             o = data.get("order", {})
@@ -243,33 +250,29 @@ class KalshiClient:
                 status=o.get("status", "unknown"),
                 filled=int(o.get("filled_count", 0)),
             )
-        except aiohttp.ClientResponseError as e:
-            log.error(f"Order failed ({ticker} {side} @{yes_cents}c x{count}): {e.status} — payload was: {payload}")
-            # Log full response body for debugging
-            try:
-                async with self._session.post(
-                    f"{self.base_url}/portfolio/orders",
-                    headers=self._make_headers("POST", "/portfolio/orders"),
-                    json=payload
-                ) as r:
-                    body = await r.text()
-                    log.error(f"Kalshi response: {body[:300]}")
-            except: pass
+        except Exception as e:
+            log.error(f"Order failed ({ticker} {side} x{count}): {e}")
             return None
         except Exception as e:
             log.error(f"Order failed ({ticker} {side}): {e}")
             return None
 
-    async def sell_position(self, ticker: str, side: str, count: int, price_dollars: float) -> Optional[OrderResult]:
-        """Exit an open position early — sell at current market price."""
+    async def sell_position(self, ticker, side, count, price_dollars):
         yes_price = price_dollars if side == "yes" else round(1 - price_dollars, 4)
-        payload = {
-            "ticker": ticker, "side": side,
-            "action": "sell",
-            "type": "limit", "count": count,
-            "yes_price": str(round(yes_price, 4)),
-            "no_price": str(round(1 - yes_price, 4)),
-        }
+        yes_cents = max(1, min(99, int(round(yes_price * 100))))
+        no_cents = 100 - yes_cents
+        if side == "yes":
+            payload = {
+                "ticker": ticker, "side": "yes", "type": "limit",
+                "count": int(count), "action": "sell",
+                "yes_price": yes_cents,
+            }
+        else:
+            payload = {
+                "ticker": ticker, "side": "no", "type": "limit",
+                "count": int(count), "action": "sell",
+                "no_price": no_cents,
+            }
         try:
             data = await self._post("/portfolio/orders", payload)
             o = data.get("order", {})
