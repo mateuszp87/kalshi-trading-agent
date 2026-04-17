@@ -226,10 +226,13 @@ class KalshiClient:
 
     async def place_order(self, ticker: str, side: str, price_dollars: float, count: int) -> Optional[OrderResult]:
         yes_price = price_dollars if side == "yes" else round(1 - price_dollars, 4)
+        # Kalshi API expects integer cents (1-99), not decimal dollars
+        yes_cents = max(1, min(99, int(round(yes_price * 100))))
+        no_cents  = 100 - yes_cents
         payload = {
             "ticker": ticker, "side": side, "type": "limit", "count": count,
-            "yes_price": str(round(yes_price, 4)),
-            "no_price": str(round(1 - yes_price, 4)),
+            "yes_price": yes_cents,
+            "no_price": no_cents,
         }
         try:
             data = await self._post("/portfolio/orders", payload)
