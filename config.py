@@ -14,7 +14,7 @@ class AgentConfig:
     category: str = "all"
     dry_run: bool = True
     scan_interval_min: int = 900
-    scan_interval_max: int = 1800
+    scan_interval_max: int = 900
     max_bet_size: float = 5.0
     max_open_positions: int = 10   # lower limit — game trades cycle fast
     buy_threshold: float = 0.72
