@@ -224,15 +224,15 @@ class KalshiClient:
             log.error(f"Settlements error: {e}")
             return []
 
-    async def place_order(self, ticker: str, side: str, price_dollars: float, count: int) -> Optional[OrderResult]:
+    async def place_order(self, ticker, side, price_dollars, count):
         yes_price = price_dollars if side == "yes" else round(1 - price_dollars, 4)
-        # Kalshi API expects integer cents (1-99), not decimal dollars
         yes_cents = max(1, min(99, int(round(yes_price * 100))))
-        no_cents  = 100 - yes_cents
+        no_cents = 100 - yes_cents
+        # Try integer cents format first (current API)
         payload = {
-            "ticker": ticker, "side": side, "type": "limit", "count": count,
-            "yes_price": yes_cents,
-            "no_price": no_cents,
+            "ticker": ticker, "side": side, "type": "limit", "count": int(count),
+            "yes_price": yes_cents, "no_price": no_cents,
+            "action": "buy",
         }
         try:
             data = await self._post("/portfolio/orders", payload)
@@ -243,6 +243,19 @@ class KalshiClient:
                 status=o.get("status", "unknown"),
                 filled=int(o.get("filled_count", 0)),
             )
+        except aiohttp.ClientResponseError as e:
+            log.error(f"Order failed ({ticker} {side} @{yes_cents}c x{count}): {e.status} — payload was: {payload}")
+            # Log full response body for debugging
+            try:
+                async with self._session.post(
+                    f"{self.base_url}/portfolio/orders",
+                    headers=self._make_headers("POST", "/portfolio/orders"),
+                    json=payload
+                ) as r:
+                    body = await r.text()
+                    log.error(f"Kalshi response: {body[:300]}")
+            except: pass
+            return None
         except Exception as e:
             log.error(f"Order failed ({ticker} {side}): {e}")
             return None
