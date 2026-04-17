@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kalshi Agent</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Instrument+Serif&family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0a; --surface: #141414; --surface-hi: #1c1c1c;
+  --border: #262626; --border-hi: #333;
+  --text: #e8e8e8; --dim: #888; --muted: #555;
+  --green: #4ade80; --red: #f87171; --amber: #fbbf24; --blue: #60a5fa;
+  --green-bg: rgba(74,222,128,0.1); --red-bg: rgba(248,113,113,0.1);
+  --amber-bg: rgba(251,191,36,0.1); --blue-bg: rgba(96,165,250,0.1);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: Geist, -apple-system, sans-serif;
+       font-size: 14px; line-height: 1.5; min-height: 100vh; padding: 24px;
+       background-image: radial-gradient(circle at 15% 0%, rgba(74,222,128,0.04) 0%, transparent 40%),
+                         radial-gradient(circle at 85% 100%, rgba(167,139,250,0.03) 0%, transparent 40%); }
+.mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+.header { display: flex; justify-content: space-between; align-items: flex-end;
+          margin-bottom: 32px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.brand { display: flex; align-items: baseline; gap: 12px; }
+.brand h1 { font-family: 'Instrument Serif', serif; font-size: 40px; font-weight: 400; letter-spacing: -0.02em; }
+.tag { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.15em;
+       color: var(--dim); text-transform: uppercase; padding: 3px 8px;
+       border: 1px solid var(--border); border-radius: 2px; }
+.tag.live { color: var(--red); border-color: var(--red); background: var(--red-bg); }
+.status { display: flex; align-items: center; gap: 12px; font-family: 'JetBrains Mono', monospace;
+          font-size: 11px; color: var(--dim); }
+.pulse { width: 8px; height: 8px; background: var(--green); border-radius: 50%;
+         box-shadow: 0 0 8px var(--green); animation: pulse 2s ease-in-out infinite; }
+.pulse.off { background: var(--muted); box-shadow: none; animation: none; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+.metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 32px; }
+.metric { background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+          padding: 20px; position: relative; overflow: hidden; }
+.metric::before { content: ""; position: absolute; top: 0; left: 0; width: 2px; height: 100%;
+                  background: var(--border-hi); }
+.metric.pos::before { background: var(--green); }
+.metric.neg::before { background: var(--red); }
+.metric.warn::before { background: var(--amber); }
+.metric-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.12em;
+                text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
+.metric-value { font-family: 'Instrument Serif', serif; font-size: 32px; letter-spacing: -0.02em; line-height: 1; }
+.metric-value.pos { color: var(--green); }
+.metric-value.neg { color: var(--red); }
+.metric-sub { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--dim); margin-top: 8px; }
+.tabs { display: flex; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+.tab { background: transparent; border: none; padding: 12px 20px; font-family: Geist, sans-serif;
+       font-size: 13px; color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent;
+       margin-bottom: -1px; transition: all 0.15s; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--text); border-bottom-color: var(--green); font-weight: 500; }
+.panel { display: none; }
+.panel.active { display: block; }
+.shead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.shead h2 { font-family: 'Instrument Serif', serif; font-size: 24px; font-weight: 400; }
+.pill { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--dim);
+        padding: 4px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; }
+.table { background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+         overflow: hidden; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.thead { display: grid; padding: 12px 16px; background: var(--surface-hi);
+         border-bottom: 1px solid var(--border); font-size: 10px;
+         letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.trow { display: grid; padding: 14px 16px; border-bottom: 1px solid var(--border); align-items: center; }
+.trow:last-child { border-bottom: none; }
+.trow:hover { background: var(--surface-hi); }
+.cols-pos { grid-template-columns: 2.5fr 60px 60px 70px 80px 100px 70px; gap: 12px; }
+.cols-set { grid-template-columns: 130px 2.5fr 55px 55px 80px 80px 90px; gap: 12px; }
+.cols-mkt { grid-template-columns: 2.5fr 80px 60px 60px 70px 80px; gap: 12px; }
+.trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dim { color: var(--dim); }
+.pos { color: var(--green); font-weight: 500; }
+.neg { color: var(--red); font-weight: 500; }
+.right { text-align: right; }
+.badge { display: inline-block; padding: 3px 8px; font-family: 'JetBrains Mono', monospace;
+         font-size: 10px; font-weight: 500; border-radius: 3px; letter-spacing: 0.05em;
+         text-transform: uppercase; }
+.badge.yes { background: var(--green-bg); color: var(--green); }
+.badge.no { background: var(--red-bg); color: var(--red); }
+.badge.soon { background: var(--amber-bg); color: var(--amber); }
+.loading { padding: 60px; text-align: center; font-family: 'JetBrains Mono', monospace;
+           font-size: 11px; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; }
+.error { background: var(--red-bg); border: 1px solid var(--red); color: var(--red);
+         padding: 16px; border-radius: 4px; margin-bottom: 20px;
+         font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border);
+          font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted);
+          text-align: center; letter-spacing: 0.08em; }
+.fgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.fcard { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 20px; }
+.fcard h3 { font-family: 'Instrument Serif', serif; font-size: 20px; font-weight: 400;
+            margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.frow { display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; }
+.frow .lbl { color: var(--dim); }
+.frow .val { font-family: 'JetBrains Mono', monospace; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="brand">
+    <h1>Kalshi Agent</h1>
+    <span class="tag" id="mode-tag">Terminal</span>
+  </div>
+  <div class="status">
+    <span class="pulse" id="pulse"></span>
+    <span id="status-text">Connecting…</span>
+  </div>
+</div>
+
+<div id="err"></div>
+
+<div class="metrics">
+  <div class="metric pos">
+    <div class="metric-label">Balance</div>
+    <div class="metric-value mono" id="balance">—</div>
+    <div class="metric-sub">Kalshi account</div>
+  </div>
+  <div class="metric" id="pnl-metric">
+    <div class="metric-label">Net P&L</div>
+    <div class="metric-value mono" id="pnl">—</div>
+    <div class="metric-sub" id="pnl-sub"></div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Win rate</div>
+    <div class="metric-value mono" id="winrate">—</div>
+    <div class="metric-sub" id="winrate-sub"></div>
+  </div>
+  <div class="metric warn">
+    <div class="metric-label">Open</div>
+    <div class="metric-value mono" id="pos-count">—</div>
+    <div class="metric-sub" id="pos-sub"></div>
+  </div>
+  <div class="metric">
+    <div class="metric-label">Biggest win</div>
+    <div class="metric-value mono pos" id="big-win">—</div>
+    <div class="metric-sub" id="big-loss"></div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="positions">Open positions</button>
+  <button class="tab" data-tab="trades">Trade history</button>
+  <button class="tab" data-tab="markets">Live markets</button>
+  <button class="tab" data-tab="settings">Settings</button>
+</div>
+
+<div class="panel active" id="panel-positions">
+  <div class="shead">
+    <h2>Open positions</h2>
+    <span class="pill" id="pos-pill">—</span>
+  </div>
+  <div class="table">
+    <div class="thead cols-pos">
+      <div>Market</div><div>Side</div><div>Qty</div>
+      <div>Now</div><div>Value</div><div class="right">Closes</div><div class="right">P&L</div>
+    </div>
+    <div id="positions-body"><div class="loading">Fetching portfolio…</div></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-trades">
+  <div class="shead">
+    <h2>Trade history</h2>
+    <span class="pill" id="trades-pill">—</span>
+  </div>
+  <div class="table">
+    <div class="thead cols-set">
+      <div>Date</div><div>Market</div><div>Side</div>
+      <div>Qty</div><div>Cost</div><div>Returned</div><div class="right">P&L</div>
+    </div>
+    <div id="trades-body"><div class="loading">Loading trades…</div></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-markets">
+  <div class="shead">
+    <h2>Live game markets</h2>
+    <span class="pill" id="markets-pill">scanning</span>
+  </div>
+  <div class="table">
+    <div class="thead cols-mkt">
+      <div>Market</div><div>Volume</div><div>Spread</div>
+      <div>Closes</div><div>Price</div><div class="right">Score</div>
+    </div>
+    <div id="markets-body"><div class="loading">Click tab to scan</div></div>
+  </div>
+</div>
+
+<div class="panel" id="panel-settings">
+  <div class="shead"><h2>Configuration</h2></div>
+  <div class="fgrid">
+    <div class="fcard">
+      <h3>Risk parameters</h3>
+      <div class="frow"><span class="lbl">Max bet size</span><span class="val">$5.00</span></div>
+      <div class="frow"><span class="lbl">Max open positions</span><span class="val">25</span></div>
+      <div class="frow"><span class="lbl">Take profit at</span><span class="val pos">+12¢</span></div>
+      <div class="frow"><span class="lbl">Stop loss at</span><span class="val neg">-15¢</span></div>
+      <div class="frow"><span class="lbl">Max daily loss</span><span class="val">$100.00</span></div>
+      <div class="frow"><span class="lbl">Scan interval</span><span class="val">15–30 min</span></div>
+    </div>
+    <div class="fcard">
+      <h3>Market priority</h3>
+      <div class="frow"><span class="lbl">1</span><span class="val">NBA game winners</span></div>
+      <div class="frow"><span class="lbl">2</span><span class="val">Champions League</span></div>
+      <div class="frow"><span class="lbl">3</span><span class="val">NHL games & series</span></div>
+      <div class="frow"><span class="lbl">4</span><span class="val">MLB games / F5</span></div>
+      <div class="frow"><span class="lbl">5</span><span class="val">NBA halves / quarters</span></div>
+      <div class="frow"><span class="lbl">6</span><span class="val">Daily crypto / weather</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="footer"><span id="refresh-time">Initializing…</span></div>
+
+<script>
+document.querySelectorAll('.tab').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-' + t.dataset.tab).classList.add('active');
+    if (t.dataset.tab === 'markets') loadMarkets();
+  };
+});
+
+const fmt = {
+  money: n => '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+  signed: n => n === 0 ? '$0.00' : (n > 0 ? '+' : '-') + '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+  hours: iso => {
+    if (!iso) return '—';
+    const h = (new Date(iso) - new Date()) / 3600000;
+    if (h < 0) return 'closed';
+    if (h < 1) return Math.round(h * 60) + 'm';
+    if (h < 24) return h.toFixed(1) + 'h';
+    return Math.round(h / 24) + 'd';
+  },
+  vol: n => n >= 1e6 ? (n/1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n/1e3) + 'k' : String(Math.round(n)),
+  short: s => s && s.length > 32 ? s.slice(0, 30) + '…' : (s || ''),
+};
+
+async function loadPortfolio() {
+  try {
+    const r = await fetch('/api/portfolio');
+    const d = await r.json();
+    if (d.error) {
+      document.getElementById('err').innerHTML = '<div class="error">⚠ ' + d.error + '</div>';
+      return;
+    }
+    document.getElementById('err').innerHTML = '';
+    const s = d.stats;
+    document.getElementById('balance').textContent = fmt.money(d.balance);
+    const pnlEl = document.getElementById('pnl');
+    pnlEl.textContent = fmt.signed(s.all_time_pnl);
+    pnlEl.className = 'metric-value mono ' + (s.all_time_pnl >= 0 ? 'pos' : 'neg');
+    const pm = document.getElementById('pnl-metric');
+    pm.classList.toggle('pos', s.all_time_pnl >= 0);
+    pm.classList.toggle('neg', s.all_time_pnl < 0);
+    document.getElementById('pnl-sub').textContent =
+      'Wagered ' + fmt.money(s.total_wagered) + ' → returned ' + fmt.money(s.total_returned);
+    document.getElementById('winrate').textContent = s.win_rate + '%';
+    document.getElementById('winrate-sub').textContent = s.wins + 'W · ' + s.losses + 'L · ' + s.total_trades + ' total';
+    document.getElementById('pos-count').textContent = d.positions.length;
+    document.getElementById('pos-sub').textContent = 'of 25 slots';
+    document.getElementById('pos-pill').textContent = d.positions.length + ' active';
+    document.getElementById('trades-pill').textContent = d.trades.length + ' settled';
+    document.getElementById('big-win').textContent = fmt.signed(s.biggest_win);
+    document.getElementById('big-loss').textContent = 'Worst: ' + fmt.signed(s.biggest_loss);
+
+    document.getElementById('positions-body').innerHTML = d.positions.length === 0
+      ? '<div class="loading">No open positions · agent scanning</div>'
+      : d.positions.map(p => `<div class="trow cols-pos">
+          <div class="trunc" title="${p.ticker}">${p.title}</div>
+          <div><span class="badge ${p.side.toLowerCase()}">${p.side}</span></div>
+          <div>${p.count}</div>
+          <div>${Math.round(p.current_price * 100)}¢</div>
+          <div>${fmt.money(p.market_value)}</div>
+          <div class="right dim">${fmt.hours(p.close_time)}</div>
+          <div class="right ${p.market_value >= p.count * 0.5 ? 'pos' : 'dim'}">${fmt.money(p.market_value)}</div>
+        </div>`).join('');
+
+    document.getElementById('trades-body').innerHTML = d.trades.length === 0
+      ? '<div class="loading">No settled trades yet</div>'
+      : d.trades.map(t => `<div class="trow cols-set">
+          <div class="dim">${t.time}</div>
+          <div class="trunc" title="${t.ticker}">${fmt.short(t.ticker)}</div>
+          <div><span class="badge ${(t.side || '').toLowerCase()}">${t.side || '—'}</span></div>
+          <div>${t.count}</div>
+          <div>${fmt.money(t.cost)}</div>
+          <div>${fmt.money(t.revenue)}</div>
+          <div class="right ${t.pnl > 0 ? 'pos' : t.pnl < 0 ? 'neg' : 'dim'}">${fmt.signed(t.pnl)}</div>
+        </div>`).join('');
+
+    loadAgent();
+    document.getElementById('refresh-time').textContent = 'Last updated ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById('err').innerHTML = '<div class="error">⚠ ' + e.message + '</div>';
+  }
+}
+
+async function loadAgent() {
+  try {
+    const r = await fetch('/api/agent');
+    const d = await r.json();
+    const pulse = document.getElementById('pulse');
+    const statusText = document.getElementById('status-text');
+    const tag = document.getElementById('mode-tag');
+    if (d.online) {
+      pulse.className = 'pulse';
+      statusText.textContent = 'Agent online · auto-refresh 30s';
+      tag.textContent = d.session?.mode === 'live' ? 'LIVE' : 'Dry run';
+      tag.className = d.session?.mode === 'live' ? 'tag live' : 'tag';
+    } else {
+      pulse.className = 'pulse off';
+      statusText.textContent = 'Agent offline';
+    }
+  } catch {}
+}
+
+async function loadMarkets() {
+  const body = document.getElementById('markets-body');
+  body.innerHTML = '<div class="loading">Scanning Kalshi markets…</div>';
+  try {
+    const r = await fetch('/api/markets');
+    const d = await r.json();
+    if (!d.markets || d.markets.length === 0) {
+      body.innerHTML = '<div class="loading">No priced game markets available</div>';
+      document.getElementById('markets-pill').textContent = '0';
+      return;
+    }
+    document.getElementById('markets-pill').textContent = d.markets.length + ' tradeable';
+    body.innerHTML = d.markets.map(m => {
+      const soon = m.hours_left <= 6;
+      return `<div class="trow cols-mkt">
+        <div class="trunc">${m.title}${soon ? ' <span class="badge soon">soon</span>' : ''}</div>
+        <div>${fmt.vol(m.volume)}</div>
+        <div>${Math.round(m.spread * 100)}¢</div>
+        <div class="dim">${m.hours_left.toFixed(1)}h</div>
+        <div>${Math.round(m.mid * 100)}¢</div>
+        <div class="right dim">${m.score.toLocaleString()}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    body.innerHTML = '<div class="loading">Error: ' + e.message + '</div>';
+  }
+}
+
+loadPortfolio();
+setInterval(loadPortfolio, 30000);
+</script>
+</body>
+</html>
