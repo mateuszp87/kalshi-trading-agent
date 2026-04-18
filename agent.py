@@ -35,31 +35,51 @@ STOP_LOSS   = 0.15   # tighter — cut losses fast
 
 # ── Ordered by profitability (volume × liquidity) ─────────────
 PRIORITY_SERIES = [
-    # NBA playoff series — 9M+ volume, 1c spreads, series ongoing
-    "KXNBAGAME",        # NBA series game winner    (highest volume)
-    "KXNBA1HWINNER",    # NBA half winner           (82k vol, same-day)
-    "KXNBA2HWINNER",    # NBA 2nd half winner
-    "KXNBA1QWINNER",    # NBA quarter winners
+    # NBA — all markets, highest liquidity
+    "KXNBAGAME",            # NBA game winner           (main target)
+    "KXNBASERIESSPREAD",    # NBA series spread
+    "KXNBASERIESGAMES",     # NBA series total games
+    "KXNBA1HWINNER",        # NBA 1st half winner
+    "KXNBA2HWINNER",        # NBA 2nd half winner
+    "KXNBA1QWINNER",        # NBA quarters
     "KXNBA2QWINNER",
     "KXNBA3QWINNER",
     "KXNBA4QWINNER",
-    "KXNBASERIESSPREAD",# NBA series game spread
-    "KXNBASERIESGAMES", # NBA series total games
-    "KXNBAPLAYOFFPTS",  # NBA player points props
-    # Champions League semis — 1.8M volume, 1c spreads
-    "KXUCLGAME",
-    # NHL playoff series — good volume, daily updates
-    "KXNHLGAME",
-    "KXNHLSERIES",
-    # MLB game winners
-    "KXMLBGAME",
-    "KXMLBF5",          # MLB first 5 innings
-    # Soccer leagues
-    "KXEPLGAME",
-    "KXSERIEAGAME",
-    "KXLALIGAGAME",
-    "KXBUNDESLIGAGAME",
-    "KXMLSGAME",
+    "KXNBAPLAYOFFPTS",      # NBA player points props
+    "KXNBAPLAYERPTS",       # NBA regular points props
+    "KXNBAPLAYOFFAST",      # NBA player assists
+    "KXNBAPLAYOFFREB",      # NBA player rebounds
+    "KXNBAPLAYOFFMADE3",    # NBA 3-pointers made
+    # Soccer — top 5 leagues + UCL
+    "KXUCLGAME",            # Champions League
+    "KXUELGAME",            # Europa League
+    "KXEPLGAME",            # Premier League
+    "KXLALIGAGAME",         # La Liga
+    "KXSERIEAGAME",         # Serie A
+    "KXBUNDESLIGAGAME",     # Bundesliga
+    "KXLIGUE1GAME",         # Ligue 1
+    "KXMLSGAME",            # MLS
+    # NHL playoffs
+    "KXNHLGAME",            # NHL game winner
+    "KXNHLSERIES",          # NHL series winner
+    "KXNHLPLAYOFFGOALS",    # NHL player goals
+    # MLB — now in season
+    "KXMLBGAME",            # MLB game winner
+    "KXMLBF5",              # MLB first 5 innings
+    "KXMLBRUNS",            # MLB total runs
+    "KXMLBHOMERUN",         # MLB home run props
+    # Other pro leagues
+    "KXWNBAGAME",           # WNBA when in season
+    "KXCFBGAME",            # College football
+    "KXCBBGAME",            # College basketball
+    # Tennis & golf
+    "KXATPMATCH",           # ATP tennis
+    "KXWTAMATCH",           # WTA tennis
+    "KXPGARNDLEAD",         # PGA round leaders
+    "KXPGATOUR",            # PGA tournament winner
+    # Boxing / MMA
+    "KXUFCFIGHT",           # UFC fight
+    "KXBOXINGFIGHT",        # Boxing
 ]
 
 DAILY_SERIES = [
@@ -546,11 +566,14 @@ class KalshiTradingAgent:
     async def _place(self, client, market: KalshiMarket, side: str,
                      signal: TradeSignal, category: str):
         c = signal.confidence
-        # SURGICAL: only bet when confidence is truly high
-        if c >= 0.90:   frac, tier = 1.00, "ELITE"
-        elif c >= 0.85: frac, tier = 0.80, "HIGH"
-        elif c >= 0.78: frac, tier = 0.60, "SOLID"
-        else:           frac, tier = 0.00, "SKIP"  # won't reach here due to filter
+        edge = abs(signal.edge)
+        # Combine confidence + edge for sizing
+        # Higher of either boosts the bet; both high = max bet
+        if c >= 0.88 and edge >= 0.15:  frac, tier = 1.00, "ELITE"
+        elif c >= 0.85:                 frac, tier = 0.85, "HIGH"
+        elif c >= 0.80:                 frac, tier = 0.70, "SOLID"
+        elif c >= 0.75:                 frac, tier = 0.55, "GOOD"
+        else:                           frac, tier = 0.40, "MODERATE"
 
         bet   = round(self.config.max_bet_size * frac, 2)
         price = (market.yes_ask if side == "yes" else market.no_ask)
