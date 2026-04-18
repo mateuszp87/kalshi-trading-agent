@@ -294,6 +294,16 @@ class KalshiTradingAgent:
         except Exception as e: log.warning(f"Settlements: {e}")
 
     async def _manage_exits(self, client):
+        """Auto-exit DISABLED — let positions ride to resolution."""
+        if not self.stats.positions:
+            return
+        # Still log positions for visibility but never auto-sell
+        import logging
+        log = logging.getLogger(__name__)
+        log.info(f"[POSITIONS] {len(self.stats.positions)} open, letting them resolve naturally")
+        return
+
+    async def _manage_exits_DISABLED(self, client):
         """Check every position — take profit, stop loss, or evict worst to free slot."""
         if not self.stats.positions: return
         tickers = list(self.stats.positions.keys())
