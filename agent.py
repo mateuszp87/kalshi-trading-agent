@@ -96,6 +96,15 @@ def profit_score(m: KalshiMarket) -> float:
     return vol_score * spread_score * time_score
 
 
+def event_root(ticker: str) -> str:
+    """Extract event ticker (the game itself), stripping the outcome suffix.
+    KXNBAGAME-26APR17GSWPHX-GSW → KXNBAGAME-26APR17GSWPHX
+    KXNBAGAME-26APR17GSWPHX-PHX → KXNBAGAME-26APR17GSWPHX (same event!)
+    """
+    parts = ticker.rsplit("-", 1)
+    return parts[0] if len(parts) > 1 else ticker
+
+
 def is_game(title: str) -> bool:
     t = title.lower()
     game = [" at ", " vs ", "winner?", "first half", "second half",
@@ -433,6 +442,15 @@ class KalshiTradingAgent:
 
     async def _evaluate(self, client, market: KalshiMarket, category: str):
         cat_cfg = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG["sports"])
+        # CRITICAL: Check if we already have ANY position on this event (game)
+        # e.g. if we have GSW YES, don't bet PHX YES on the same game
+        event = event_root(market.ticker)
+        for existing_ticker in self.stats.positions:
+            if event_root(existing_ticker) == event:
+                log.info(f"  → SKIP already have position in this game ({event})")
+                self.stats.skipped += 1
+                return
+        # Also check already-settled trades — no re-entering the same game
         # Skip markets already resolved or near-resolved
         if market.yes_bid >= 0.97 or market.yes_ask >= 0.99:
             log.info(f"  → SKIP market already near-resolved (bid={market.yes_bid:.2f} ask={market.yes_ask:.2f})")
