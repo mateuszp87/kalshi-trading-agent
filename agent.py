@@ -453,16 +453,48 @@ class KalshiTradingAgent:
 
     async def _evaluate(self, client, market: KalshiMarket, category: str):
         cat_cfg = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG["sports"])
-        # CRITICAL: Check if we already have ANY position on this event (game)
-        # e.g. if we have GSW YES, don't bet PHX YES on the same game
+        # Event-level dedup
         event = event_root(market.ticker)
         for existing_ticker in self.stats.positions:
             if event_root(existing_ticker) == event:
-                log.info(f"  → SKIP already have position in this game ({event})")
+                log.info(f"  → SKIP already have position in this event ({event})")
                 self.stats.skipped += 1
                 return
-        # Also check already-settled trades — no re-entering the same game
-        # Skip markets already resolved or near-resolved
+        
+        # ═══ UNIVERSAL AUTO-SKIP FILTERS (save Claude API calls) ═══
+        title_lower = market.title.lower()
+        h = market.hours_until_close
+        
+        # Crypto binaries: mostly untradeable garbage
+        if "KXBTCD" in market.ticker or "KXETHD" in market.ticker:
+            # Zero volume = dead market
+            if market.volume < 100:
+                log.info(f"  → SKIP crypto binary zero volume")
+                self.stats.skipped += 1
+                return
+            # Extreme strikes (far from spot) at 1c = fair priced
+            if market.yes_ask <= 0.02 and market.volume < 1000:
+                log.info(f"  → SKIP crypto binary at 1c with thin volume")
+                self.stats.skipped += 1
+                return
+        
+        # Weather markets: skip if same-day temp already likely set
+        if "KXHIGHNY" in market.ticker or "RAINNY" in market.ticker:
+            import datetime as _dt
+            now_hour = _dt.datetime.now(_dt.timezone.utc).hour
+            # After 6pm UTC (~2pm ET) same-day temp markets are mostly resolved
+            if h is not None and h < 6 and now_hour >= 18:
+                log.info(f"  → SKIP weather market closing soon, temp likely set")
+                self.stats.skipped += 1
+                return
+        
+        # "What will Trump say" politics — essentially random
+        if "TRUMPMENTION" in market.ticker:
+            log.info(f"  → SKIP Trump mention markets are unpredictable")
+            self.stats.skipped += 1
+            return
+        
+        # Skip markets already near-resolved
         if market.yes_bid >= 0.97 or market.yes_ask >= 0.99:
             log.info(f"  → SKIP market already near-resolved (bid={market.yes_bid:.2f} ask={market.yes_ask:.2f})")
             self.stats.skipped += 1
