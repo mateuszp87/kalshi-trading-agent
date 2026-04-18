@@ -93,11 +93,27 @@ EDGE BY THRESHOLD:
 - 2c spread, 100k+ vol: need 6+ cent edge  
 - 5c+ spread, <10k vol: need 8+ cent edge
 
-CONFIDENCE SCORING:
-- 85%+: Strong signal, high certainty (e.g. series 3-0, or clearly wrong market price)
-- 70-85%: Good signal, some uncertainty
-- 55-70%: Moderate signal
-- Below 55%: Skip unless edge is massive
+CONFIDENCE SCORING — BE STRICT:
+- 85%+: You have overwhelming evidence (series 3-0, weather already happened, clear base rate mismatch)
+- 75-85%: Strong signal with minor uncertainty  
+- 70-75%: Decent signal but consider skipping
+- Below 70%: ALWAYS skip — agent won't trade below 70% confidence
+
+PRE-TRADE CHECKLIST (answer honestly):
+1. Is the market ALREADY RESOLVED? (e.g. daily temp market where high was already set earlier)
+   If yes → skip, don't chase near-certain prices
+2. Is my edge based on real information or just a generic heuristic like "home court advantage"?
+   If generic → be more conservative
+3. Would I bet $100 of my own money on this at these odds?
+   If no → skip
+4. Is the current market price already reflecting all available information?
+   If yes → skip even if base rate suggests otherwise
+
+WHEN TO SKIP AGGRESSIVELY:
+- Daily weather markets after 3pm local time (temps are basically locked in)
+- Tight 1c-spread markets with high volume (efficient, hard to beat)
+- Markets where you have no real signal beyond base rates
+- When your "edge" is just reverting to historical averages — markets already know those
 
 OUTPUT only valid JSON, no markdown:
 {

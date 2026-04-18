@@ -107,15 +107,14 @@ def is_game(title: str) -> bool:
 
 
 def edge_threshold(m: KalshiMarket) -> float:
-    """Minimum edge to trade. Tighter for liquid markets."""
+    """Minimum edge to trade. Strict — aiming for 70%+ win rate."""
     spread = (m.yes_ask - m.yes_bid) if m.yes_bid and m.yes_ask else 0.5
     vol    = m.volume or 0
-    # Tight-spread, high-volume markets: 4c edge enough
-    # Wide-spread, low-volume markets: need more edge
-    if spread <= 0.02 and vol > 50000:  return 0.04
-    if spread <= 0.05 and vol > 5000:   return 0.06
-    if spread <= 0.10 and vol > 1000:   return 0.08
-    return 0.12
+    # Tighter spreads require BIGGER edge to beat efficient markets
+    if spread <= 0.02 and vol > 100000: return 0.08   # was 0.04
+    if spread <= 0.05 and vol > 10000:  return 0.10   # was 0.06
+    if spread <= 0.10 and vol > 1000:   return 0.13   # was 0.08
+    return 0.18                                        # was 0.12
 
 
 @dataclass
@@ -434,6 +433,20 @@ class KalshiTradingAgent:
 
     async def _evaluate(self, client, market: KalshiMarket, category: str):
         cat_cfg = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG["sports"])
+        # Skip markets already resolved or near-resolved
+        if market.yes_bid >= 0.97 or market.yes_ask >= 0.99:
+            log.info(f"  → SKIP market already near-resolved (bid={market.yes_bid:.2f} ask={market.yes_ask:.2f})")
+            self.stats.skipped += 1
+            return
+        if market.yes_ask <= 0.03 and market.yes_bid <= 0.01:
+            log.info(f"  → SKIP market near-zero (too resolved)")
+            self.stats.skipped += 1
+            return
+        # Skip markets closing in less than 30 minutes
+        if market.hours_until_close is not None and market.hours_until_close < 0.5:
+            log.info(f"  → SKIP closing too soon ({market.hours_until_close:.1f}h left)")
+            self.stats.skipped += 1
+            return
         game_flag = is_game(market.title)
         spread = round(market.yes_ask - market.yes_bid, 3) if market.yes_bid and market.yes_ask else '?'
         log.info(f"\n  {'🏀' if game_flag else '📊'} {market.title[:68]}")
@@ -456,12 +469,17 @@ class KalshiTradingAgent:
             log.info("  → SKIP"); self.stats.skipped += 1; return
 
         thresh = edge_threshold(market)
+        MIN_CONFIDENCE = 0.70  # require 70%+ confidence — aiming at 70% win rate
+        if signal.confidence < MIN_CONFIDENCE:
+            log.info(f"  → SKIP confidence {signal.confidence:.0%} < 70% minimum")
+            self.stats.skipped += 1
+            return
         if signal.action == "buy_yes" and signal.edge >= thresh:
             await self._place(client, market, "yes", signal, category)
         elif signal.action == "buy_no" and signal.edge <= -thresh:
             await self._place(client, market, "no", signal, category)
         else:
-            log.info(f"  → SKIP (edge {signal.edge:+.2f} < {thresh:.2f} threshold)")
+            log.info(f"  → SKIP (edge {signal.edge:+.2f} below {thresh:.2f} threshold)")
             self.stats.skipped += 1
 
     async def _place(self, client, market: KalshiMarket, side: str,
