@@ -116,14 +116,23 @@ def is_game(title: str) -> bool:
 
 
 def edge_threshold(m: KalshiMarket) -> float:
-    """Minimum edge to trade. Strict — aiming for 70%+ win rate."""
+    """Minimum edge to trade. Strict — aiming for 70%+ win rate.
+    HEAVY FAVORITES (75c+) need extra-large edge because sharp money already hunted them."""
     spread = (m.yes_ask - m.yes_bid) if m.yes_bid and m.yes_ask else 0.5
     vol    = m.volume or 0
-    # Tighter spreads require BIGGER edge to beat efficient markets
-    if spread <= 0.02 and vol > 100000: return 0.08   # was 0.04
-    if spread <= 0.05 and vol > 10000:  return 0.10   # was 0.06
-    if spread <= 0.10 and vol > 1000:   return 0.13   # was 0.08
-    return 0.18                                        # was 0.12
+    mid    = m.mid_price
+
+    # Heavy favorite/underdog territory: market is usually right
+    # Only trade if edge is HUGE (15c+)
+    if mid >= 0.75 or mid <= 0.25:
+        if vol > 100000: return 0.15  # liquid heavy fave — need huge edge
+        return 0.12
+
+    # Mid-range markets (25-75c): normal thresholds
+    if spread <= 0.02 and vol > 100000: return 0.08
+    if spread <= 0.05 and vol > 10000:  return 0.10
+    if spread <= 0.10 and vol > 1000:   return 0.13
+    return 0.18
 
 
 @dataclass
