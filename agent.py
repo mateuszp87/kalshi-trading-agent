@@ -116,23 +116,20 @@ def is_game(title: str) -> bool:
 
 
 def edge_threshold(m: KalshiMarket) -> float:
-    """Minimum edge to trade. Strict — aiming for 70%+ win rate.
-    HEAVY FAVORITES (75c+) need extra-large edge because sharp money already hunted them."""
+    """VERY strict — only place bets with overwhelming edge and high confidence."""
     spread = (m.yes_ask - m.yes_bid) if m.yes_bid and m.yes_ask else 0.5
     vol    = m.volume or 0
     mid    = m.mid_price
 
-    # Heavy favorite/underdog territory: market is usually right
-    # Only trade if edge is HUGE (15c+)
+    # Heavy favorite/underdog: respect the market, need overwhelming edge
     if mid >= 0.75 or mid <= 0.25:
-        if vol > 100000: return 0.15  # liquid heavy fave — need huge edge
-        return 0.12
+        return 0.20  # 20 cent edge required
 
-    # Mid-range markets (25-75c): normal thresholds
-    if spread <= 0.02 and vol > 100000: return 0.08
-    if spread <= 0.05 and vol > 10000:  return 0.10
-    if spread <= 0.10 and vol > 1000:   return 0.13
-    return 0.18
+    # Mid-range liquid markets: require sharp mispricing
+    if spread <= 0.02 and vol > 100000: return 0.12   # was 0.08
+    if spread <= 0.05 and vol > 10000:  return 0.15   # was 0.10
+    if spread <= 0.10 and vol > 1000:   return 0.18   # was 0.13
+    return 0.25  # illiquid markets need massive edge
 
 
 @dataclass
@@ -399,9 +396,14 @@ class KalshiTradingAgent:
                 continue
             event_tickers_seen.add(event_root)
             self.stats.scanned += 1
+            before = self.stats.placed
             await self._evaluate(client, market, "sports")
             await asyncio.sleep(1)
-            placed += 1
+            if self.stats.placed > before:
+                placed += 1
+                if placed >= 2:  # Max 2 trades per scan — force selectivity
+                    log.info("  Placed 2 trades this scan — moving to exit management only")
+                    break
 
         # ── Step 2: Daily crypto if slots remain ─────────────────
         if self.stats.count < self.config.max_open_positions:
@@ -496,7 +498,7 @@ class KalshiTradingAgent:
             log.info("  → SKIP"); self.stats.skipped += 1; return
 
         thresh = edge_threshold(market)
-        MIN_CONFIDENCE = 0.70  # require 70%+ confidence — aiming at 70% win rate
+        MIN_CONFIDENCE = 0.80  # require 70%+ confidence — aiming at 70% win rate
         if signal.confidence < MIN_CONFIDENCE:
             log.info(f"  → SKIP confidence {signal.confidence:.0%} < 70% minimum")
             self.stats.skipped += 1
@@ -512,10 +514,11 @@ class KalshiTradingAgent:
     async def _place(self, client, market: KalshiMarket, side: str,
                      signal: TradeSignal, category: str):
         c = signal.confidence
-        if c >= 0.85:   frac, tier = 1.00, "HIGH"
-        elif c >= 0.70: frac, tier = 0.70, "MEDIUM"
-        elif c >= 0.55: frac, tier = 0.50, "LOW"
-        else:           frac, tier = 0.30, "VERY LOW"
+        # SURGICAL: only bet when confidence is truly high
+        if c >= 0.90:   frac, tier = 1.00, "ELITE"
+        elif c >= 0.85: frac, tier = 0.80, "HIGH"
+        elif c >= 0.78: frac, tier = 0.60, "SOLID"
+        else:           frac, tier = 0.00, "SKIP"  # won't reach here due to filter
 
         bet   = round(self.config.max_bet_size * frac, 2)
         price = (market.yes_ask if side == "yes" else market.no_ask)
