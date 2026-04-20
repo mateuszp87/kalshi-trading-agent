@@ -487,6 +487,12 @@ class KalshiTradingAgent:
         event = event_root(market.ticker)
         for existing_ticker in self.stats.positions:
             if event_root(existing_ticker) == event:
+                # Weather buckets within same event are separate bets — allow them
+            ticker_upper = (market.ticker or "").upper()
+            is_weather = "HIGHNY" in ticker_upper or "HIGHDEN" in ticker_upper or "HIGHCHI" in ticker_upper or "HIGHLAX" in ticker_upper
+            if is_weather:
+                pass  # skip the event-dedup for weather
+            else:
                 log.info(f"  → SKIP already have position in this event ({event})")
                 self.stats.skipped += 1
                 return
