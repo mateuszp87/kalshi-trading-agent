@@ -1,131 +1,173 @@
-import os, json, time
-from flask import Flask, render_template_string, jsonify
+"""Kalshi Agent Dashboard — Live P&L tracking"""
+import os, json, base64, datetime, asyncio, traceback
+from urllib.parse import urlparse
+from flask import Flask, jsonify, send_from_directory
+import aiohttp
+from dotenv import load_dotenv
+load_dotenv()
+
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.backends import default_backend
+
+KEY_ID = os.getenv("KALSHI_API_KEY", "")
+BASE_URL = os.getenv("KALSHI_BASE_URL", "https://api.elections.kalshi.com/trade-api/v2")
+KEY_PATHS = [
+    os.getenv("KALSHI_PRIVATE_KEY_PATH", ""),
+    "./kalshi-private.key",
+    os.path.expanduser("~/Desktop/kalshi_agent/kalshi-private.key"),
+]
 
 app = Flask(__name__)
-STATS_FILE = 'stats.json'
+_CACHE = {"data": None, "ts": 0}
 
-def load_data():
-    if not os.path.exists(STATS_FILE):
-        return {}
-    with open(STATS_FILE, 'r') as f:
-        try:
-            return json.load(f)
-        except:
-            return {}
+def load_key():
+    for p in KEY_PATHS:
+        if p and os.path.exists(p):
+            with open(p, "rb") as f:
+                return serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
+    raise FileNotFoundError("Kalshi key not found")
 
-@app.route('/')
+def headers(method, path):
+    key = load_key()
+    ts = str(int(datetime.datetime.now().timestamp() * 1000))
+    sp = urlparse(BASE_URL + path).path.split("?")[0]
+    sig = key.sign(f"{ts}{method}{sp}".encode(),
+                   padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
+                   hashes.SHA256())
+    return {"KALSHI-ACCESS-KEY": KEY_ID,
+            "KALSHI-ACCESS-SIGNATURE": base64.b64encode(sig).decode(),
+            "KALSHI-ACCESS-TIMESTAMP": ts}
+
+async def api(sess, path, params=None):
+    async with sess.get(BASE_URL + path, headers=headers("GET", path), params=params) as r:
+        if r.status != 200: return None
+        return await r.json()
+
+def dollar(val):
+    if val is None: return 0.0
+    try:
+        v = float(val)
+        return v / 100 if abs(v) > 1 else v
+    except: return 0.0
+
+async def fetch_everything():
+    async with aiohttp.ClientSession() as sess:
+        bal_data = await api(sess, "/portfolio/balance")
+        balance = round(float(bal_data.get("balance", 0)) / 100, 2) if bal_data else 0
+
+        pos_data = await api(sess, "/portfolio/positions")
+        raw_positions = pos_data.get("market_positions", []) if pos_data else []
+
+        positions = []
+        total_unrealized = 0.0
+        total_open_cost = 0.0
+
+        for p in raw_positions:
+            ticker = p.get("ticker", "")
+            pos_fp = float(p.get("position_fp", 0) or 0)
+            if not ticker or pos_fp == 0: continue
+
+            side = "YES" if pos_fp > 0 else "NO"
+            count = int(abs(pos_fp))
+            exposure = float(p.get("market_exposure_dollars", 0) or 0)
+
+            mkt_data = await api(sess, f"/markets/{ticker}")
+            if mkt_data:
+                m = mkt_data.get("market", mkt_data)
+                yes_bid = dollar(m.get("yes_bid_dollars") or m.get("yes_bid"))
+                yes_ask = dollar(m.get("yes_ask_dollars") or m.get("yes_ask"))
+                title = m.get("title", ticker)
+                close_time = m.get("close_time", "")
+            else:
+                yes_bid, yes_ask, title, close_time = 0, 0, ticker, ""
+
+            current = yes_bid if side == "YES" else (round(1 - yes_ask, 4) if yes_ask else 0)
+            market_value = round(current * count, 2)
+            unrealized = round(market_value - exposure, 2)
+            entry_avg = round(exposure / count, 4) if count else 0
+
+            positions.append({
+                "ticker": ticker, "title": title, "side": side, "count": count,
+                "entry_avg": entry_avg, "current_price": current,
+                "cost": round(exposure, 2), "market_value": market_value,
+                "unrealized_pnl": unrealized, "max_payout": round(float(count), 2),
+                "profit_if_win": round(float(count) - exposure, 2),
+                "close_time": close_time,
+            })
+            total_unrealized += unrealized
+            total_open_cost += exposure
+
+        settles_data = []
+        cursor = None
+        for _ in range(10):
+            params = {"limit": 100}
+            if cursor: params["cursor"] = cursor
+            data = await api(sess, "/portfolio/settlements", params)
+            if not data: break
+            batch = data.get("settlements", [])
+            settles_data.extend(batch)
+            cursor = data.get("cursor")
+            if not cursor or len(batch) < 100: break
+
+        settles = []
+        for s in settles_data:
+            cost = round(float(s.get("cost", 0)) / 100, 2)
+            rev = round(float(s.get("revenue", 0)) / 100, 2)
+            if cost <= 0: continue
+            ticker = s.get("market_ticker", "")
+            if not ticker: continue
+            settles.append({
+                "ticker": ticker, "side": s.get("side", ""),
+                "count": int(s.get("count", 0) or 0),
+                "cost": cost, "revenue": rev,
+                "pnl": round(rev - cost, 2),
+                "time": s.get("created_time", "")[:19].replace("T", " "),
+            })
+        settles.sort(key=lambda x: x["time"], reverse=True)
+
+        wins = [t for t in settles if t["pnl"] > 0]
+        losses = [t for t in settles if t["pnl"] < 0]
+        realized_pnl = round(sum(t["pnl"] for t in settles), 2)
+        total_pnl = round(realized_pnl + total_unrealized, 2)
+
+        return {
+            "balance": balance, "positions": positions, "trades": settles[:50],
+            "stats": {
+                "realized_pnl": realized_pnl,
+                "unrealized_pnl": round(total_unrealized, 2),
+                "total_pnl": total_pnl,
+                "total_open_cost": round(total_open_cost, 2),
+                "wins": len(wins), "losses": len(losses),
+                "total_settled": len(settles),
+                "win_rate": round(len(wins) / max(len(wins) + len(losses), 1) * 100) if settles else 0,
+                "total_wagered": round(sum(t["cost"] for t in settles), 2),
+                "total_returned": round(sum(t["revenue"] for t in settles), 2),
+                "biggest_win": round(max([t["pnl"] for t in wins], default=0), 2),
+                "biggest_loss": round(min([t["pnl"] for t in losses], default=0), 2),
+            },
+        }
+
+@app.route("/")
 def index():
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Kalshi Alpha | Pro Dashboard</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <style>
-            body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', sans-serif; }
-            .stat-card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 1.5rem; }
-            .market-row:hover { background: #1e293b; transition: 0.2s; }
-        </style>
-    </head>
-    <body class="p-6">
-        <div class="max-w-7xl mx-auto">
-            <div class="flex justify-between items-end mb-8">
-                <div>
-                    <h1 class="text-3xl font-bold text-white">Kalshi Terminal <span class="text-blue-500">v3.1</span></h1>
-                    <p class="text-slate-400 text-sm">24/7 Autonomic Trading Active</p>
-                </div>
-                <div class="text-right">
-                    <p id="clock" class="text-xl font-mono text-blue-400 font-bold"></p>
-                    <p class="text-xs text-slate-500 uppercase tracking-widest">Eugene, OR | UTC-7</p>
-                </div>
-            </div>
+    return send_from_directory(".", "dashboard.html")
 
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                <div class="stat-card">
-                    <p class="text-slate-400 text-xs uppercase font-bold tracking-wider">Total Liquidity</p>
-                    <h2 id="balance" class="text-3xl font-bold text-white mt-1">$0.00</h2>
-                </div>
-                <div class="stat-card">
-                    <p class="text-slate-400 text-xs uppercase font-bold tracking-wider">Realized P&L (All-Time)</p>
-                    <h2 id="pnl" class="text-3xl font-bold text-green-400 mt-1">$0.00</h2>
-                </div>
-                <div class="stat-card">
-                    <p class="text-slate-400 text-xs uppercase font-bold tracking-wider">Active Exposure</p>
-                    <h2 id="unrealized" class="text-3xl font-bold text-blue-400 mt-1">$0.00</h2>
-                </div>
-                <div class="stat-card">
-                    <p class="text-slate-400 text-xs uppercase font-bold tracking-wider">Success Rate</p>
-                    <h2 id="winrate" class="text-3xl font-bold text-purple-400 mt-1">0%</h2>
-                </div>
-            </div>
+@app.route("/api/portfolio")
+def r_portfolio():
+    try:
+        now_ts = datetime.datetime.now().timestamp()
+        if _CACHE["data"] and now_ts - _CACHE["ts"] < 10:
+            return jsonify(_CACHE["data"])
+        data = asyncio.run(fetch_everything())
+        _CACHE["data"] = data
+        _CACHE["ts"] = now_ts
+        return jsonify(data)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                    <div class="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between">
-                        <h3 class="font-bold uppercase text-sm tracking-widest">Active Market Positions</h3>
-                        <span id="pos-count" class="bg-blue-600 text-white text-xs px-2 py-1 rounded">0 ACTIVE</span>
-                    </div>
-                    <table class="w-full">
-                        <thead class="text-slate-500 text-xs uppercase bg-slate-900">
-                            <tr>
-                                <th class="p-4 text-left">Market</th>
-                                <th class="p-4 text-center">Qty</th>
-                                <th class="p-4 text-center">Avg Entry</th>
-                                <th class="p-4 text-right">Return</th>
-                            </tr>
-                        </thead>
-                        <tbody id="pos-table" class="divide-y divide-slate-800"></tbody>
-                    </table>
-                </div>
-
-                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                    <div class="p-4 border-b border-slate-800 bg-slate-800/50">
-                        <h3 class="font-bold uppercase text-sm tracking-widest">Recent Activity</h3>
-                    </div>
-                    <div id="activity-feed" class="p-4 space-y-4 max-h-[500px] overflow-y-auto text-sm">
-                        </div>
-                </div>
-            </div>
-        </div>
-
-        <script>
-            function fmt(val) { return parseFloat(val || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
-
-            async function update() {
-                const res = await fetch('/api/data');
-                const d = await res.json();
-                
-                document.getElementById('balance').innerText = '$' + fmt(d.balance);
-                document.getElementById('pnl').innerText = '$' + fmt(d.realized_pnl);
-                document.getElementById('unrealized').innerText = '$' + fmt(d.unrealized_pnl);
-                
-                const positions = d.positions || [];
-                document.getElementById('pos-count').innerText = positions.length + ' ACTIVE';
-                
-                const table = document.getElementById('pos-table');
-                table.innerHTML = positions.map(p => `
-                    <tr class="market-row">
-                        <td class="p-4 font-mono text-sm text-blue-300">${p.ticker}</td>
-                        <td class="p-4 text-center font-bold">${parseInt(parseFloat(parseFloat(p.count_fp || p.count || 0)_fp || parseFloat(p.count_fp || p.count || 0) || 0))}</td>
-                        <td class="p-4 text-center">$${fmt(p.avg_price_dollars || p.avg_price)}</td>
-                        <td class="p-4 text-right font-bold ${p.pnl >= 0 ? 'text-green-400' : 'text-red-400'}">$${fmt(p.pnl)}</td>
-                    </tr>
-                `).join('');
-
-                const winrate = d.win_rate || 0;
-                document.getElementById('winrate').innerText = winrate + '%';
-
-                document.getElementById('clock').innerText = new Date().toLocaleTimeString();
-            }
-            setInterval(update, 5000); update();
-        </script>
-    </body>
-    </html>
-    ''')
-
-@app.route('/api/data')
-def api_data():
-    return jsonify(load_data())
-
-if __name__ == '__main__':
-    app.run(port=8080, host='0.0.0.0')
+if __name__ == "__main__":
+    print("\n" + "="*60)
+    print("  Kalshi Dashboard — http://localhost:8080")
+    print("="*60 + "\n")
+    app.run(port=8080, debug=False, host="0.0.0.0")
