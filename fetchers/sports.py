@@ -116,11 +116,21 @@ async def fetch_sports_signals(market_title: str, api_key: str = "") -> dict:
                 }
                 break
 
-    # Add team context for individual game markets
+    # Add team context for individual game markets (sport-aware description)
     if away_team and home_team:
+        sport_desc = {
+            "basketball_nba": "NBA game. Home team wins ~55%. Use Vegas line as primary signal.",
+            "baseball_mlb": "MLB game. Pitcher matchup is the #1 factor. Home team wins ~54% regular season.",
+            "icehockey_nhl": "NHL game. Home team ~55% regular, ~58% playoffs. Hot goalies drive edges.",
+            "americanfootball_nfl": "NFL game. Home team wins ~57%. Use Vegas spread as anchor.",
+            "soccer": "Soccer match. Top-5 league home teams ~45-50% base rate (draws possible).",
+            "golf": "Golf tournament/round. Top-10 world rank players have ~3-5% tournament win rate.",
+            "tennis": "Tennis match. Rankings are primary signal; surface matters.",
+            "unknown": "Sport not auto-detected. Use market title + price + volume to assess."
+        }.get(sport_key, "Use ticker + title to identify sport; ignore mismatched signals.")
         signals["game_context"] = {
             "value": 0.5,
-            "description": f"Individual game market: {away_team} vs {home_team}. Home team ({home_team}) wins ~55% of NBA games. Use Vegas line as primary signal if available.",
+            "description": f"{away_team} vs {home_team}. {sport_desc}",
             "raw": {"away": away_team, "home": home_team, "sport": sport_key}
         }
 
@@ -135,23 +145,24 @@ async def fetch_sports_signals(market_title: str, api_key: str = "") -> dict:
                     "raw": odds,
                 }
 
-        # 2. ESPN injury report
-        injuries = await _fetch_injuries(session, sport_key)
-        if injuries:
-            signals["injury_report"] = {
-                "value": injuries["impact_score"],  # 0=no impact, 1=major star out
-                "description": f"Key injuries detected: {injuries['summary']}",
-                "raw": injuries["players"],
-            }
+        # 2. ESPN injury report — ONLY for sports where fetchers return accurate data (NBA/NFL)
+        if sport_key in ("basketball_nba", "americanfootball_nfl"):
+            injuries = await _fetch_injuries(session, sport_key)
+            if injuries:
+                signals["injury_report"] = {
+                    "value": injuries["impact_score"],
+                    "description": f"Key injuries detected: {injuries['summary']}",
+                    "raw": injuries["players"],
+                }
 
-        # 3. Recent team form
-        form = await _fetch_team_form(session, sport_key, market_title)
-        if form:
-            signals["team_momentum"] = {
-                "value": round(form["win_pct_last10"], 3),
-                "description": f"Win % over last 10 games: {form['record']}. Avg point diff: {form['avg_margin']:+.1f}",
-                "raw": form,
-            }
+            # 3. Recent team form (same gating — point diff is NBA/NFL-speak)
+            form = await _fetch_team_form(session, sport_key, market_title)
+            if form:
+                signals["team_momentum"] = {
+                    "value": round(form["win_pct_last10"], 3),
+                    "description": f"Win % over last 10 games: {form['record']}. Avg point diff: {form['avg_margin']:+.1f}",
+                    "raw": form,
+                }
 
         # 4. Polymarket cross-reference (public API, no key needed)
         poly = await _fetch_polymarket_sports(session, market_title)
@@ -175,15 +186,43 @@ def _extract_teams(title: str) -> tuple:
 
 def _detect_sport(title: str) -> str:
     title_lower = title.lower()
-    if any(x in title_lower for x in ["nba", "basketball", "lakers", "celtics", "warriors", "nets", "heat", "bulls"]):
-        return "basketball_nba"
-    if any(x in title_lower for x in ["nfl", "football", "super bowl", "quarterback", "touchdown"]):
-        return "americanfootball_nfl"
-    if any(x in title_lower for x in ["mlb", "baseball", "yankees", "dodgers", "pitcher", "home run", "hr"]):
-        return "baseball_mlb"
-    if any(x in title_lower for x in ["nhl", "hockey", "puck", "stanley cup"]):
+    # NHL — check first, many team names (Senators/Hurricanes/Kings/Avalanche/Wild/Stars/etc)
+    nhl_teams = ["senators","hurricanes","kings","avalanche","wild","stars","oilers",
+                 "panthers","maple leafs","lightning","capitals","rangers","islanders",
+                 "devils","flyers","penguins","bruins","canadiens","sabres","red wings",
+                 "blue jackets","jets","predators","blackhawks","blues","sharks","kraken",
+                 "ducks","canucks","flames","knights","coyotes","utah hockey"]
+    if any(x in title_lower for x in ["nhl","hockey","puck","stanley cup"]) or \
+       any(t in title_lower for t in nhl_teams):
         return "icehockey_nhl"
-    return "basketball_nba"  # default
+    # MLB team names
+    mlb_teams = ["yankees","dodgers","red sox","mets","astros","braves","phillies",
+                 "cubs","cardinals","giants","padres","mariners","rangers tx",
+                 "blue jays","orioles","rays","twins","guardians","tigers","royals",
+                 "white sox","brewers","reds","pirates","marlins","nationals",
+                 "diamondbacks","rockies","athletics","angels"]
+    if any(x in title_lower for x in ["mlb","baseball","pitcher"," hr ","home run"]) or \
+       any(t in title_lower for t in mlb_teams):
+        return "baseball_mlb"
+    # Soccer
+    soccer_terms = ["ucl","epl","champions league","premier league","la liga","serie a",
+                    "bundesliga","ligue 1","psg","bayern","real madrid","barcelona",
+                    "arsenal","liverpool","manchester","chelsea","tottenham","juventus",
+                    "milan","inter","napoli","dortmund","atletico","ajax","porto"]
+    if any(x in title_lower for x in soccer_terms):
+        return "soccer"
+    # NBA
+    if any(x in title_lower for x in ["nba","basketball","lakers","celtics","warriors","nets","heat","bulls"]):
+        return "basketball_nba"
+    # NFL
+    if any(x in title_lower for x in ["nfl","football","super bowl","quarterback","touchdown"]):
+        return "americanfootball_nfl"
+    # Golf/tennis/other
+    if any(x in title_lower for x in ["pga","golf","masters","schauffele"]):
+        return "golf"
+    if any(x in title_lower for x in ["atp","wta","tennis","open "]):
+        return "tennis"
+    return "unknown"  # don't default to NBA — unknowns get no NBA signals
 
 
 async def _fetch_vegas_odds(session: aiohttp.ClientSession, sport_key: str, api_key: str) -> dict:
