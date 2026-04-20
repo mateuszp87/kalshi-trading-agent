@@ -106,7 +106,7 @@ def index():
                 table.innerHTML = positions.map(p => `
                     <tr class="market-row">
                         <td class="p-4 font-mono text-sm text-blue-300">${p.ticker}</td>
-                        <td class="p-4 text-center font-bold">${parseInt(parseFloat(p.count_fp || p.count || 0))}</td>
+                        <td class="p-4 text-center font-bold">${parseInt(parseFloat(parseFloat(p.count_fp || p.count || 0)_fp || parseFloat(p.count_fp || p.count || 0) || 0))}</td>
                         <td class="p-4 text-center">$${fmt(p.avg_price_dollars || p.avg_price)}</td>
                         <td class="p-4 text-right font-bold ${p.pnl >= 0 ? 'text-green-400' : 'text-red-400'}">$${fmt(p.pnl)}</td>
                     </tr>

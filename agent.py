@@ -244,8 +244,8 @@ class KalshiTradingAgent:
             real = await client.get_positions()
             for cat_cfg in real:
                 ticker = p.get("market_ticker", p.get("ticker", ""))
-                yes_ct = int(p.get("position_fp", p.get("yes_count", 0)) or 0)
-                no_ct  = int(p.get("no_count", 0) or 0)
+                yes_ct = int(float(p.get("position_fp", 0)))) or 0)
+                no_ct  = int(float(p.get("position_fp", 0))) or 0)
                 if not ticker or (yes_ct == 0 and no_ct == 0): continue
                 side  = "yes" if yes_ct > 0 else "no"
                 count = yes_ct if yes_ct > 0 else no_ct
@@ -477,7 +477,7 @@ class KalshiTradingAgent:
         log.info(f"\n  {'🏀' if game_flag else '📊'} {market.title[:68]}")
         log.info(f"  {market.ticker} | mid={market.mid_price:.2f} spread={spread} vol={market.volume:,} | [{market.timeframe_label}]")
 
-        api_val = getattr(self.config, cat_cfg["cfg"], "")
+        api_val = getattr(self.config, cat_cfg.cfg, "")
         try:
             signals = await cat_cfg["fetcher"](market.title, **{cat_cfg["key_arg"]: api_val})
         except Exception as e:
