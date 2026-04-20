@@ -86,9 +86,9 @@ def index():
                     <tr class="hover:bg-slate-700/30 transition-colors">
                         <td class="p-4 font-mono text-sm text-blue-300">${p.ticker}</td>
                         <td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${p.side === 'yes' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}">${p.side.toUpperCase()}</span></td>
-                        <td class="p-4">${p.count}</td>
-                        <td class="p-4">$${(p.avg_price || 0).toFixed(2)}</td>
-                        <td class="p-4 font-bold ${p.pnl >= 0 ? 'text-green-400' : 'text-red-400'}">$${(p.pnl || 0).toFixed(2)}</td>
+                        <td class="p-4">${parseFloat(p.count_fp || p.count || 0)}</td>
+                        <td class="p-4">$${(parseFloat(p.avg_price_dollars || p.avg_price || 0) || 0).toFixed(2)}</td>
+                        <td class="p-4 font-bold ${parseFloat(p.realized_pnl_dollars || p.pnl || 0) >= 0 ? 'text-green-400' : 'text-red-400'}">$${(parseFloat(p.realized_pnl_dollars || p.pnl || 0) || 0).toFixed(2)}</td>
                     </tr>
                 `).join('');
                 document.getElementById('clock').innerText = new Date().toLocaleTimeString();
@@ -100,7 +100,7 @@ def index():
     '''
 
 @app.route('/api/data')
-@app.route('/api/portfolio') # Mapping both for legacy support
+@app.route('/api/data') # Mapping both for legacy support
 def data():
     return jsonify(load_stats())
 
