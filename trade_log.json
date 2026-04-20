@@ -1,23 +1,32 @@
 {
-  "updated": "2026-04-20T21:48:37.498185+00:00",
+  "updated": "2026-04-20T21:52:34.897427+00:00",
   "session": {
-    "scanned": 1,
-    "placed": 1,
+    "scanned": 13,
+    "placed": 2,
     "exited": 0,
-    "skipped": 0,
-    "positions": 1,
+    "skipped": 10,
+    "positions": 2,
     "realized_pnl": 0.0,
     "win_rate": 0.0
   },
   "open_positions": {
-    "KXNBASERIES-26HOULALR1-LAL": {
-      "title": "Houston vs Los Angeles L 2026 1st Round series winner?",
-      "side": "yes",
-      "entry": 0.36,
-      "contracts": 7,
-      "cost": 2.52,
-      "timeframe": "THIS MONTH",
-      "is_game": true
+    "KXSCOTUSRESIGN-29-CT": {
+      "title": "Will Clarence Thomas resign during Trump's term?",
+      "side": "no",
+      "entry": 0.54,
+      "contracts": 5,
+      "cost": 2.7,
+      "timeframe": "LONG-TERM",
+      "is_game": false
+    },
+    "KXSCOTUSRESIGN-29-SA": {
+      "title": "Will Samuel Alito resign during Trump's term?",
+      "side": "no",
+      "entry": 0.47,
+      "contracts": 5,
+      "cost": 2.35,
+      "timeframe": "LONG-TERM",
+      "is_game": false
     }
   },
   "all_time_pnl": 0.0

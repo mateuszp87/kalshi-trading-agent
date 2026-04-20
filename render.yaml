@@ -1,0 +1,13 @@
+services:
+  - type: worker
+    name: kalshi-trading-agent
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python3 main.py --category all
+    envVars:
+      - key: KALSHI_EMAIL
+        sync: false
+      - key: KALSHI_PASSWORD
+        sync: false
+      - key: KALSHI_RSA_KEY
+        sync: false
