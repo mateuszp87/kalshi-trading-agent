@@ -2,7 +2,7 @@
 Kalshi REST API client — April 2026
 - Uses yes_bid_dollars / yes_ask_dollars (new API format)
 - Uses volume_fp for real volume
-- Includes sell_position and get_market for exit management
+- Includes sell_position_fp_fp and get_market for exit management
 """
 
 import base64, datetime, logging
@@ -150,7 +150,7 @@ class KalshiClient:
             return await r.json()
 
     def _parse_market(self, m: dict, category: str = "") -> KalshiMarket:
-        yes_bid = _parse_price(m.get("yes_bid_dollars") or m.get("yes_bid") or m.get("yes_price"))
+        yes_bid = _parse_price(m.get("yes_bid_dollars") or m.get("yes_bid") or m.get("yes_price_dollars"))
         yes_ask = _parse_price(m.get("yes_ask_dollars") or m.get("yes_ask") or m.get("yes_ask_price"))
         return KalshiMarket(
             ticker=m.get("ticker", ""),
@@ -208,10 +208,10 @@ class KalshiClient:
             log.error(f"Balance error: {e}")
             return 0.0
 
-    async def get_positions(self) -> list:
+    async def get_position_fp_fps(self) -> list:
         try:
-            data = await self._get("/portfolio/positions")
-            return data.get("market_positions", data.get("positions", []))
+            data = await self._get("/portfolio/position_fp_fps")
+            return data.get("market_position_fp_fps", data.get("position_fp_fps", []))
         except Exception as e:
             log.error(f"Positions error: {e}")
             return []
@@ -225,28 +225,28 @@ class KalshiClient:
             return []
 
     async def place_order(self, ticker, side, price_dollars, count):
-        yes_price = price_dollars if side == "yes" else round(1 - price_dollars, 4)
-        yes_cents = max(1, min(99, int(round(yes_price * 100))))
+        yes_price_dollars = price_dollars if side == "yes" else round(1 - price_dollars, 4)
+        yes_cents = max(1, min(99, int(round(yes_price_dollars * 100))))
         no_cents = 100 - yes_cents
         # Kalshi wants EXACTLY ONE price field based on side
         if side == "yes":
             payload = {
                 "ticker": ticker, "side": "yes", "type": "limit",
                 "count": int(count), "action": "buy",
-                "yes_price": yes_cents,
+                "yes_price_dollars": yes_cents,
             }
         else:
             payload = {
                 "ticker": ticker, "side": "no", "type": "limit",
                 "count": int(count), "action": "buy",
-                "no_price": no_cents,
+                "no_price_dollars": no_cents,
             }
         try:
             data = await self._post("/portfolio/orders", payload)
             o = data.get("order", {})
             return OrderResult(
                 order_id=o.get("id", ""), ticker=ticker, side=side,
-                price=yes_price, count=count,
+                price=yes_price_dollars, count=count,
                 status=o.get("status", "unknown"),
                 filled=int(o.get("filled_count", 0)),
             )
@@ -257,28 +257,28 @@ class KalshiClient:
             log.error(f"Order failed ({ticker} {side}): {e}")
             return None
 
-    async def sell_position(self, ticker, side, count, price_dollars):
-        yes_price = price_dollars if side == "yes" else round(1 - price_dollars, 4)
-        yes_cents = max(1, min(99, int(round(yes_price * 100))))
+    async def sell_position_fp_fp(self, ticker, side, count, price_dollars):
+        yes_price_dollars = price_dollars if side == "yes" else round(1 - price_dollars, 4)
+        yes_cents = max(1, min(99, int(round(yes_price_dollars * 100))))
         no_cents = 100 - yes_cents
         if side == "yes":
             payload = {
                 "ticker": ticker, "side": "yes", "type": "limit",
                 "count": int(count), "action": "sell",
-                "yes_price": yes_cents,
+                "yes_price_dollars": yes_cents,
             }
         else:
             payload = {
                 "ticker": ticker, "side": "no", "type": "limit",
                 "count": int(count), "action": "sell",
-                "no_price": no_cents,
+                "no_price_dollars": no_cents,
             }
         try:
             data = await self._post("/portfolio/orders", payload)
             o = data.get("order", {})
             return OrderResult(
                 order_id=o.get("id", ""), ticker=ticker, side=side,
-                price=yes_price, count=count,
+                price=yes_price_dollars, count=count,
                 status=o.get("status", "unknown"),
                 filled=int(o.get("filled_count", 0)),
             )

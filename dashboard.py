@@ -1,6 +1,6 @@
 """
 Kalshi Dashboard — reads from Kalshi API using your existing auth.
-Shows: balance, open positions with payouts, orders/settlements past 7 days, live markets.
+Shows: balance, open position_fp_fps with payouts, orders/settlements past 7 days, live markets.
 """
 import os, json, base64, datetime, asyncio, traceback
 from urllib.parse import urlparse
@@ -69,16 +69,16 @@ async def fetch_all():
         bal = await api(sess, "/portfolio/balance")
         balance = round(float(bal.get("balance", 0)) / 100, 2) if bal else 0
 
-        # 2. Open positions enriched with live market data
-        pos_data = await api(sess, "/portfolio/positions")
-        raw = pos_data.get("market_positions", []) if pos_data else []
+        # 2. Open position_fp_fps enriched with live market data
+        pos_data = await api(sess, "/portfolio/position_fp_fps")
+        raw = pos_data.get("market_position_fp_fps", []) if pos_data else []
 
-        positions = []
+        position_fp_fps = []
         total_unrealized = 0.0
         total_open_cost = 0.0
         for p in raw:
             ticker = p.get("ticker", "")
-            pos_fp = float(p.get("position_fp", 0) or 0)
+            pos_fp = float(p.get("position_fp_fp_fp", 0) or 0)
             if not ticker or pos_fp == 0: continue
 
             side = "YES" if pos_fp > 0 else "NO"
@@ -101,13 +101,13 @@ async def fetch_all():
             profit_if_win = round(max_payout - cost, 2)
             unrealized = round(market_value - cost, 2)
 
-            positions.append({
+            position_fp_fps.append({
                 "ticker": ticker, "title": title, "side": side, "count": count,
                 "entry_avg": round(cost / count, 4) if count else 0,
                 "current_price": current,
                 "cost": round(cost, 2),
                 "market_value": market_value,
-                "unrealized_pnl": unrealized,
+                "unrealized_pnl_dollars": unrealized,
                 "max_payout": round(max_payout, 2),
                 "profit_if_win": profit_if_win,
                 "close_time": close_time,
@@ -129,9 +129,9 @@ async def fetch_all():
             if filled == 0: continue
             side = (o.get("side", "") or "").upper()
             action = (o.get("action", "") or "").lower()
-            yes_price = dollars(o.get("yes_price") or o.get("yes_price_dollars"))
-            no_price = dollars(o.get("no_price") or o.get("no_price_dollars"))
-            fill_price = yes_price if side == "YES" else no_price
+            yes_price_dollars = dollars(o.get("yes_price_dollars") or o.get("yes_price_dollars"))
+            no_price_dollars = dollars(o.get("no_price_dollars") or o.get("no_price_dollars"))
+            fill_price = yes_price_dollars if side == "YES" else no_price_dollars
             if not fill_price:
                 fill_price = dollars(o.get("fill_price") or o.get("avg_price"))
             # Fetch market title
@@ -236,12 +236,12 @@ async def fetch_all():
 
         return {
             "balance": balance,
-            "positions": positions,
+            "position_fp_fps": position_fp_fps,
             "orders": orders[:50],
             "settlements": settles[:50],
             "stats": {
-                "realized_pnl": realized,
-                "unrealized_pnl": round(total_unrealized, 2),
+                "realized_pnl_dollars": realized,
+                "unrealized_pnl_dollars": round(total_unrealized, 2),
                 "total_pnl": total_pnl,
                 "total_open_cost": round(total_open_cost, 2),
                 "wins": len(wins),
