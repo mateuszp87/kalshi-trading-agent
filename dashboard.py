@@ -96,7 +96,7 @@ def index():
                 const d = await res.json();
                 
                 document.getElementById('balance').innerText = '$' + fmt(d.balance);
-                document.getElementById('pnl').innerText = '$' + fmt(d.realized_pnl_dollars);
+                document.getElementById('pnl').innerText = '$' + fmt(d.realized_pnl);
                 document.getElementById('unrealized').innerText = '$' + fmt(d.unrealized_pnl);
                 
                 const positions = d.positions || [];
