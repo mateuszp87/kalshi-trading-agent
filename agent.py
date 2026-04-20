@@ -477,7 +477,7 @@ class KalshiTradingAgent:
         log.info(f"\n  {'🏀' if game_flag else '📊'} {market.title[:68]}")
         log.info(f"  {market.ticker} | mid={market.mid_price:.2f} spread={spread} vol={market.volume:,} | [{market.timeframe_label}]")
 
-        api_val = getattr(self.config, cat_cfg.cfg, "")
+        api_val = getattr(self.config, cat_cfg.get("cfg", ""), "")
         try:
             signals = await cat_cfg["fetcher"](market.title, **{cat_cfg["key_arg"]: api_val})
         except Exception as e:
