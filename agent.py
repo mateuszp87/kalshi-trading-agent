@@ -242,7 +242,7 @@ class KalshiTradingAgent:
         """Load real open positions from Kalshi on startup."""
         try:
             real = await client.get_positions()
-            for p in real:
+            for cat_cfg in real:
                 ticker = p.get("market_ticker", p.get("ticker", ""))
                 yes_ct = int(p.get("position_fp", p.get("yes_count", 0)) or 0)
                 no_ct  = int(p.get("no_count", 0) or 0)
