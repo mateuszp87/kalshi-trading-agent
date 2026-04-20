@@ -1,108 +1,131 @@
 import os, json, time
-from flask import Flask, render_template, jsonify, request
-from flask_cors import CORS
+from flask import Flask, render_template_string, jsonify
 
 app = Flask(__name__)
-CORS(app)
 STATS_FILE = 'stats.json'
 
-def load_stats():
+def load_data():
     if not os.path.exists(STATS_FILE):
-        return {"balance": 0, "positions": [], "realized_pnl_dollars": 0, "unrealized_pnl": 0}
+        return {}
     with open(STATS_FILE, 'r') as f:
         try:
             return json.load(f)
         except:
-            return {"balance": 0, "positions": [], "realized_pnl_dollars": 0, "unrealized_pnl": 0}
+            return {}
 
 @app.route('/')
 def index():
-    # Returning the original complex UI layout
-    return '''
+    return render_template_string('''
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Kalshi Alpha Agent</title>
+        <title>Kalshi Alpha | Pro Dashboard</title>
         <script src="https://cdn.tailwindcss.com"></script>
-        <style>body { background-color: #0f172a; color: white; }</style>
+        <style>
+            body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+            .stat-card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 1.5rem; }
+            .market-row:hover { background: #1e293b; transition: 0.2s; }
+        </style>
     </head>
-    <body class="p-8">
-        <div class="max-w-6xl mx-auto">
-            <div class="flex justify-between items-center mb-8">
-                <h1 class="text-3xl font-bold text-blue-400">Kalshi Terminal v2.0</h1>
+    <body class="p-6">
+        <div class="max-w-7xl mx-auto">
+            <div class="flex justify-between items-end mb-8">
+                <div>
+                    <h1 class="text-3xl font-bold text-white">Kalshi Terminal <span class="text-blue-500">v3.1</span></h1>
+                    <p class="text-slate-400 text-sm">24/7 Autonomic Trading Active</p>
+                </div>
                 <div class="text-right">
-                    <p class="text-sm text-slate-400">System Status: <span class="text-green-400">OPERATIONAL</span></p>
-                    <p id="clock" class="text-xs font-mono text-slate-500"></p>
+                    <p id="clock" class="text-xl font-mono text-blue-400 font-bold"></p>
+                    <p class="text-xs text-slate-500 uppercase tracking-widest">Eugene, OR | UTC-7</p>
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700">
-                    <p class="text-slate-400 text-sm uppercase font-semibold">Total Balance</p>
-                    <h2 id="balance" class="text-4xl font-bold mt-2">$0.00</h2>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="stat-card">
+                    <p class="text-slate-400 text-xs uppercase font-bold tracking-wider">Total Liquidity</p>
+                    <h2 id="balance" class="text-3xl font-bold text-white mt-1">$0.00</h2>
                 </div>
-                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700">
-                    <p class="text-slate-400 text-sm uppercase font-semibold">Realized P&L</p>
-                    <h2 id="pnl" class="text-4xl font-bold mt-2 text-green-400">$0.00</h2>
+                <div class="stat-card">
+                    <p class="text-slate-400 text-xs uppercase font-bold tracking-wider">Realized P&L (All-Time)</p>
+                    <h2 id="pnl" class="text-3xl font-bold text-green-400 mt-1">$0.00</h2>
                 </div>
-                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700">
-                    <p class="text-slate-400 text-sm uppercase font-semibold">Open Trades</p>
-                    <h2 id="pos-count" class="text-4xl font-bold mt-2 text-blue-400">0</h2>
+                <div class="stat-card">
+                    <p class="text-slate-400 text-xs uppercase font-bold tracking-wider">Active Exposure</p>
+                    <h2 id="unrealized" class="text-3xl font-bold text-blue-400 mt-1">$0.00</h2>
+                </div>
+                <div class="stat-card">
+                    <p class="text-slate-400 text-xs uppercase font-bold tracking-wider">Success Rate</p>
+                    <h2 id="winrate" class="text-3xl font-bold text-purple-400 mt-1">0%</h2>
                 </div>
             </div>
 
-            <div class="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-                <div class="p-4 bg-slate-900/50 border-b border-slate-700">
-                    <h2 class="text-xl font-bold">Active Market Positions</h2>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-slate-800 bg-slate-800/50 flex justify-between">
+                        <h3 class="font-bold uppercase text-sm tracking-widest">Active Market Positions</h3>
+                        <span id="pos-count" class="bg-blue-600 text-white text-xs px-2 py-1 rounded">0 ACTIVE</span>
+                    </div>
+                    <table class="w-full">
+                        <thead class="text-slate-500 text-xs uppercase bg-slate-900">
+                            <tr>
+                                <th class="p-4 text-left">Market</th>
+                                <th class="p-4 text-center">Qty</th>
+                                <th class="p-4 text-center">Avg Entry</th>
+                                <th class="p-4 text-right">Return</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pos-table" class="divide-y divide-slate-800"></tbody>
+                    </table>
                 </div>
-                <table class="w-full text-left">
-                    <thead class="bg-slate-900/30 text-slate-400 text-sm uppercase">
-                        <tr>
-                            <th class="p-4">Ticker</th>
-                            <th class="p-4">Side</th>
-                            <th class="p-4">Qty</th>
-                            <th class="p-4">Avg Price</th>
-                            <th class="p-4">Unrealized</th>
-                        </tr>
-                    </thead>
-                    <tbody id="portfolio-body" class="divide-y divide-slate-700"></tbody>
-                </table>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                    <div class="p-4 border-b border-slate-800 bg-slate-800/50">
+                        <h3 class="font-bold uppercase text-sm tracking-widest">Recent Activity</h3>
+                    </div>
+                    <div id="activity-feed" class="p-4 space-y-4 max-h-[500px] overflow-y-auto text-sm">
+                        </div>
+                </div>
             </div>
         </div>
 
         <script>
+            function fmt(val) { return parseFloat(val || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+
             async function update() {
                 const res = await fetch('/api/data');
-                const stats = await res.json();
+                const d = await res.json();
                 
-                document.getElementById('balance').innerText = '$' + (stats.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
-                document.getElementById('pnl').innerText = '$' + (stats.realized_pnl_dollars || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
+                document.getElementById('balance').innerText = '$' + fmt(d.balance);
+                document.getElementById('pnl').innerText = '$' + fmt(d.realized_pnl_dollars);
+                document.getElementById('unrealized').innerText = '$' + fmt(d.unrealized_pnl);
                 
-                const positions = stats.positions || [];
-                document.getElementById('pos-count').innerText = positions.length;
+                const positions = d.positions || [];
+                document.getElementById('pos-count').innerText = positions.length + ' ACTIVE';
                 
-                const body = document.getElementById('portfolio-body');
-                body.innerHTML = positions.map(p => `
-                    <tr class="hover:bg-slate-700/30 transition-colors">
+                const table = document.getElementById('pos-table');
+                table.innerHTML = positions.map(p => `
+                    <tr class="market-row">
                         <td class="p-4 font-mono text-sm text-blue-300">${p.ticker}</td>
-                        <td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${p.side === 'yes' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}">${p.side.toUpperCase()}</span></td>
-                        <td class="p-4">${parseFloat(p.count_fp || p.count || 0)}</td>
-                        <td class="p-4">$${(parseFloat(p.avg_price_dollars || p.avg_price || 0) || 0).toFixed(2)}</td>
-                        <td class="p-4 font-bold ${parseFloat(p.realized_pnl_dollars || p.pnl || 0) >= 0 ? 'text-green-400' : 'text-red-400'}">$${(parseFloat(p.realized_pnl_dollars || p.pnl || 0) || 0).toFixed(2)}</td>
+                        <td class="p-4 text-center font-bold">${parseInt(parseFloat(p.count_fp || p.count || 0))}</td>
+                        <td class="p-4 text-center">$${fmt(p.avg_price_dollars || p.avg_price)}</td>
+                        <td class="p-4 text-right font-bold ${p.pnl >= 0 ? 'text-green-400' : 'text-red-400'}">$${fmt(p.pnl)}</td>
                     </tr>
                 `).join('');
+
+                const winrate = d.win_rate || 0;
+                document.getElementById('winrate').innerText = winrate + '%';
+
                 document.getElementById('clock').innerText = new Date().toLocaleTimeString();
             }
             setInterval(update, 5000); update();
         </script>
     </body>
     </html>
-    '''
+    ''')
 
 @app.route('/api/data')
-@app.route('/api/data') # Mapping both for legacy support
-def data():
-    return jsonify(load_stats())
+def api_data():
+    return jsonify(load_data())
 
 if __name__ == '__main__':
-    app.run(port=8080, host='0.0.0.0', debug=False)
+    app.run(port=8080, host='0.0.0.0')
