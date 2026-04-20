@@ -36,7 +36,7 @@ STOP_LOSS   = 0.15   # tighter — cut losses fast
 # ── Ordered by profitability (volume × liquidity) ─────────────
 PRIORITY_SERIES = [
     # NBA — all markets, highest liquidity
-    "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBAGAME", "KXNBASPREAD", "KXNBATOTAL", "KXNBASERIES", "KXNBASPREAD", "KXNBATOTAL",            # NBA game winner           (main target)
+    "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBAGAME", "KXNBASERIES", "KXNBASPREAD", "KXNBATOTAL", "KXNBASERIES", "KXNBASPREAD", "KXNBATOTAL",            # NBA game winner           (main target)
     "KXNBASERIESSPREAD",    # NBA series spread
     "KXNBASERIESGAMES",     # NBA series total games
     "KXNBA1HWINNER",        # NBA 1st half winner
@@ -60,7 +60,7 @@ PRIORITY_SERIES = [
     "KXLIGUE1GAME",         # Ligue 1
     "KXMLSGAME",            # MLS
     # NHL playoffs
-    "KXNHLSPREAD", "KXNHLSPREAD", "KXNHLGAME", "KXNHLSERIES", "KXNHLSPREAD", "KXNHLSPREAD", "KXNHLGOALS",            # NHL game winner
+    "KXNHLSPREAD", "KXNHLSPREAD", "KXNHLSPREAD", "KXNHLGOALS", "KXNHLGAME", "KXNHLSERIES", "KXNHLSERIES", "KXNHLSPREAD", "KXNHLSPREAD", "KXNHLGOALS",            # NHL game winner
     "KXNHLSERIES",          # NHL series winner
     "KXNHLPLAYOFFGOALS",    # NHL player goals
     # MLB — now in season
@@ -566,7 +566,7 @@ class KalshiTradingAgent:
             log.info("  → SKIP"); self.stats.skipped += 1; return
 
         thresh = edge_threshold(market)
-        MIN_CONFIDENCE = 0.72  # require 70%+ confidence — aiming at 70% win rate
+        MIN_CONFIDENCE = 0.70  # require 70%+ confidence — aiming at 70% win rate
         if signal.confidence < MIN_CONFIDENCE:
             log.info(f"  → SKIP confidence {signal.confidence:.0%} < 70% minimum")
             self.stats.skipped += 1
