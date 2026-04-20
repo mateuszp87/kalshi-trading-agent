@@ -245,7 +245,7 @@ class KalshiTradingAgent:
             for cat_cfg in real:
                 ticker = p.get("market_ticker", p.get("ticker", ""))
                 yes_ct = int(float(p.get("position_fp", 0) or 0))
-                no_ct  = int(float(p.get("position_fp", 0))
+                no_ct  = int(float(p.get("position_fp", 0) or 0))
                 if not ticker or (yes_ct == 0 and no_ct == 0): continue
                 side  = "yes" if yes_ct > 0 else "no"
                 count = yes_ct if yes_ct > 0 else no_ct
