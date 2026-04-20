@@ -104,7 +104,7 @@ For EACH market:
 
 ═══ CONFIDENCE SCALE ═══
 - 85%+: Clear tier mismatch OR breaking news (star injury)
-- 78-85%: Solid edge from tier matchup + additional factor
+- 70-80%: Solid edge from tier matchup + additional factor
 - 72-78%: Good situational edge
 - <72%: Skip (agent auto-rejects)
 
