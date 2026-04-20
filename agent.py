@@ -175,10 +175,10 @@ class Stats:
     realized_pnl_dollars_dollars: float = 0.0
     wins: int = 0
     losses: int = 0
-    position_fp_fps: dict = field(default_factory=dict)
+    positions: dict = field(default_factory=dict)
 
     @property
-    def count(self): return len(self.position_fp_fps)
+    def count(self): return len(self.positions)
     @property
     def win_rate(self):
         t = self.wins + self.losses
@@ -219,8 +219,8 @@ class KalshiTradingAgent:
             bal = await client.get_balance()
             log.info(f"Balance: ${bal:.2f}")
 
-            # Sync real position_fp_fps from Kalshi on startup
-            await self._sync_position_fp_fps(client)
+            # Sync real positions from Kalshi on startup
+            await self._sync_positions(client)
 
             while True:
                 try:
@@ -235,16 +235,16 @@ class KalshiTradingAgent:
                     log.warning("Daily loss limit — stopping."); break
 
                 wait = random.randint(self.config.scan_interval_min, self.config.scan_interval_max)
-                log.info(f"Next scan {wait//60}m {wait%60}s | position_fp_fps {self.stats.count}/{self.config.max_open_position_fp_fps}")
+                log.info(f"Next scan {wait//60}m {wait%60}s | positions {self.stats.count}/{self.config.max_open_positions}")
                 await asyncio.sleep(wait)
 
-    async def _sync_position_fp_fps(self, client):
-        """Load real open position_fp_fps from Kalshi on startup."""
+    async def _sync_positions(self, client):
+        """Load real open positions from Kalshi on startup."""
         try:
-            real = await client.get_position_fp_fps()
+            real = await client.get_positions()
             for p in real:
                 ticker = p.get("market_ticker", p.get("ticker", ""))
-                yes_ct = int(p.get("position_fp_fp", p.get("yes_count", 0)) or 0)
+                yes_ct = int(p.get("position_fp", p.get("yes_count", 0)) or 0)
                 no_ct  = int(p.get("no_count", 0) or 0)
                 if not ticker or (yes_ct == 0 and no_ct == 0): continue
                 side  = "yes" if yes_ct > 0 else "no"
@@ -254,14 +254,14 @@ class KalshiTradingAgent:
                 ask   = mkt.get("yes_ask", 0)
                 mid   = round((bid + ask) / 2, 4) if bid and ask else 0.5
                 entry = mid if side == "yes" else round(1 - mid, 4)
-                self.stats.position_fp_fps[ticker] = Position(
+                self.stats.positions[ticker] = Position(
                     ticker=ticker, title=ticker, side=side,
                     entry_price=entry, contracts=count,
                     cost=round(entry * count, 2),
                     entry_time=datetime.now(timezone.utc).isoformat(),
                     category="synced", timeframe="synced", is_game=False,
                 )
-            log.info(f"Synced {len(self.stats.position_fp_fps)} real position_fp_fps from Kalshi")
+            log.info(f"Synced {len(self.stats.positions)} real positions from Kalshi")
         except Exception as e:
             log.warning(f"Position sync failed: {e}")
 
@@ -287,31 +287,31 @@ class KalshiTradingAgent:
                 if won: self.stats.wins += 1
                 else:   self.stats.losses += 1
                 log.info(f"  {'✅ WIN' if won else '❌ LOSS'} SETTLED: {ticker} | ${pnl:+.2f}")
-                if ticker in self.stats.position_fp_fps: del self.stats.position_fp_fps[ticker]
+                if ticker in self.stats.positions: del self.stats.positions[ticker]
                 new += 1
             self._pnl["known_ids"] = list(known)
             if new: self._save_pnl(); log.info(f"  {new} settled. All-time: ${self._pnl['all_time_pnl']:+.2f}")
         except Exception as e: log.warning(f"Settlements: {e}")
 
     async def _manage_exits(self, client):
-        """Auto-exit DISABLED — let position_fp_fps ride to resolution."""
-        if not self.stats.position_fp_fps:
+        """Auto-exit DISABLED — let positions ride to resolution."""
+        if not self.stats.positions:
             return
-        # Still log position_fp_fps for visibility but never auto-sell
+        # Still log positions for visibility but never auto-sell
         import logging
         log = logging.getLogger(__name__)
-        log.info(f"[POSITIONS] {len(self.stats.position_fp_fps)} open, letting them resolve naturally")
+        log.info(f"[POSITIONS] {len(self.stats.positions)} open, letting them resolve naturally")
         return
 
     async def _manage_exits_DISABLED(self, client):
-        """Check every position_fp_fp — take profit, stop loss, or evict worst to free slot."""
-        if not self.stats.position_fp_fps: return
-        tickers = list(self.stats.position_fp_fps.keys())
-        log.info(f"\n[EXIT CHECK] {len(tickers)} position_fp_fps | {self.config.max_open_position_fp_fps - self.stats.count} slots free")
+        """Check every position_fp — take profit, stop loss, or evict worst to free slot."""
+        if not self.stats.positions: return
+        tickers = list(self.stats.positions.keys())
+        log.info(f"\n[EXIT CHECK] {len(tickers)} positions | {self.config.max_open_positions - self.stats.count} slots free")
 
         statuses = []
         for ticker in tickers:
-            pos = self.stats.position_fp_fps.get(ticker)
+            pos = self.stats.positions.get(ticker)
             if not pos: continue
             mkt = await client.get_market(ticker)
             if not mkt: continue
@@ -341,8 +341,8 @@ class KalshiTradingAgent:
                 reason = "MARKET CLOSED"
             if reason: to_exit.append((ps, reason))
 
-        # If at limit, evict the worst-performing non-game position_fp_fp to free a slot
-        if self.stats.count >= self.config.max_open_position_fp_fps:
+        # If at limit, evict the worst-performing non-game position_fp to free a slot
+        if self.stats.count >= self.config.max_open_positions:
             already_exiting = {e[0]["ticker"] for e in to_exit}
             candidates = sorted(
                 [ps for ps in statuses
@@ -353,7 +353,7 @@ class KalshiTradingAgent:
             )
             if candidates:
                 worst = candidates[0]
-                log.info(f"  🔄 EVICTING worst position_fp_fp to free slot: {worst['ticker']} ({worst['move']:.2f})")
+                log.info(f"  🔄 EVICTING worst position_fp to free slot: {worst['ticker']} ({worst['move']:.2f})")
                 to_exit.append((worst, f"EVICT for better opportunity (move={worst['move']:.2f})"))
 
         # Execute exits
@@ -365,7 +365,7 @@ class KalshiTradingAgent:
             pnl      = round(proceeds - pos.cost, 2)
             log.info(f"  → EXIT [{reason}] | {pos.contracts}x @ {current:.2f} | P&L ${pnl:+.2f}")
             if not self.config.dry_run:
-                result = await client.sell_position_fp_fp(ticker, pos.side, pos.contracts, current)
+                result = await client.sell_position_fp(ticker, pos.side, pos.contracts, current)
                 if not result: log.warning(f"  Sell failed {ticker}"); continue
             else:
                 log.info(f"  [DRY RUN] SELL {pos.side.upper()} {pos.contracts}x {ticker} @ {current:.2f}")
@@ -381,10 +381,10 @@ class KalshiTradingAgent:
                 "pnl": pnl, "reason": reason,
                 "time": datetime.now(timezone.utc).isoformat()})
             self._save_pnl()
-            if ticker in self.stats.position_fp_fps: del self.stats.position_fp_fps[ticker]
+            if ticker in self.stats.positions: del self.stats.positions[ticker]
 
     async def _scan(self, client):
-        slots = self.config.max_open_position_fp_fps - self.stats.count
+        slots = self.config.max_open_positions - self.stats.count
         if slots <= 0:
             log.info("  No slots — exits only"); return
 
@@ -417,12 +417,12 @@ class KalshiTradingAgent:
         # Track event tickers to avoid betting both sides of same game
         event_tickers_seen = set()
         for market in tradeable[:8]:
-            if self.stats.count >= self.config.max_open_position_fp_fps: break
-            if market.ticker in self.stats.position_fp_fps: continue
+            if self.stats.count >= self.config.max_open_positions: break
+            if market.ticker in self.stats.positions: continue
             # Skip if we already have a bet on this game (same event, different outcome)
             event_root = market.ticker.rsplit("-", 1)[0]
             if event_root in event_tickers_seen:
-                log.info(f"  → SKIP already have position_fp_fp in this game ({event_root})")
+                log.info(f"  → SKIP already have position_fp in this game ({event_root})")
                 continue
             event_tickers_seen.add(event_root)
             self.stats.scanned += 1
@@ -436,7 +436,7 @@ class KalshiTradingAgent:
                     break
 
         # ── Step 2: Daily crypto if slots remain ─────────────────
-        if self.stats.count < self.config.max_open_position_fp_fps:
+        if self.stats.count < self.config.max_open_positions:
             log.info("\n[CRYPTO] Daily markets...")
             crypto_mkts = await client.get_series_markets(["KXBTCD","KXETHD"], limit=10)
             daily_crypto = [m for m in crypto_mkts
@@ -445,14 +445,14 @@ class KalshiTradingAgent:
                            and m.hours_until_close <= 24]
             daily_crypto.sort(key=profit_score, reverse=True)
             for m in daily_crypto[:3]:
-                if self.stats.count >= self.config.max_open_position_fp_fps: break
-                if m.ticker in self.stats.position_fp_fps: continue
+                if self.stats.count >= self.config.max_open_positions: break
+                if m.ticker in self.stats.positions: continue
                 self.stats.scanned += 1
                 await self._evaluate(client, m, "crypto")
                 await asyncio.sleep(1)
 
         # ── Step 3: Daily weather if slots remain ─────────────────
-        if self.stats.count < self.config.max_open_position_fp_fps:
+        if self.stats.count < self.config.max_open_positions:
             log.info("\n[WEATHER] Daily markets...")
             wx_mkts = await client.get_series_markets(["KXHIGHNY","RAINNY"], limit=10)
             daily_wx = [m for m in wx_mkts
@@ -461,21 +461,21 @@ class KalshiTradingAgent:
                        and m.hours_until_close <= 24]
             daily_wx.sort(key=profit_score, reverse=True)
             for m in daily_wx[:3]:
-                if self.stats.count >= self.config.max_open_position_fp_fps: break
-                if m.ticker in self.stats.position_fp_fps: continue
+                if self.stats.count >= self.config.max_open_positions: break
+                if m.ticker in self.stats.positions: continue
                 self.stats.scanned += 1
                 await self._evaluate(client, m, "weather")
                 await asyncio.sleep(1)
 
         # ── Step 4: Fallback econ/politics if zero sports found ────
-        if placed == 0 and self.stats.count < self.config.max_open_position_fp_fps:
+        if placed == 0 and self.stats.count < self.config.max_open_positions:
             log.info("\n[FALLBACK] No sports trades found — checking econ/politics...")
             fb_mkts = await client.get_series_markets(FALLBACK_SERIES, limit=8)
             fb_tradeable = [m for m in fb_mkts if m.yes_bid > 0 or m.yes_ask > 0]
             fb_tradeable.sort(key=profit_score, reverse=True)
             for m in fb_tradeable[:3]:
-                if self.stats.count >= self.config.max_open_position_fp_fps: break
-                if m.ticker in self.stats.position_fp_fps: continue
+                if self.stats.count >= self.config.max_open_positions: break
+                if m.ticker in self.stats.positions: continue
                 cat = "econ" if any(x in m.ticker for x in ["CPI","FED","GDP","INXZ"]) else "politics"
                 self.stats.scanned += 1
                 await self._evaluate(client, m, cat)
@@ -484,14 +484,14 @@ class KalshiTradingAgent:
     async def _evaluate(self, client, market: KalshiMarket, category: str):
         cat_cfg = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG["sports"])
         # Dedup: exact ticker only, allow multiple markets per game
-        if market.ticker in self.stats.position_fp_fps:
-            log.info(f"  → SKIP already have position_fp_fp in this exact market")
+        if market.ticker in self.stats.positions:
+            log.info(f"  → SKIP already have position_fp in this exact market")
             self.stats.skipped += 1
             return
         
         # Cap: max 3 different markets per game event
         event = event_root(market.ticker)
-        event_count = sum(1 for t in self.stats.position_fp_fps if event_root(t) == event)
+        event_count = sum(1 for t in self.stats.positions if event_root(t) == event)
         # Game limit removed
         
         # ═══ UNIVERSAL AUTO-SKIP FILTERS (save Claude API calls) ═══
@@ -605,7 +605,7 @@ class KalshiTradingAgent:
             if not result: log.error("  Order failed"); return
             log.info(f"  ✓ BUY {side.upper()} {market.ticker} | {count}x@{price:.0%} | ${cost:.2f} | id={result.order_id}")
 
-        self.stats.position_fp_fps[market.ticker] = Position(
+        self.stats.positions[market.ticker] = Position(
             ticker=market.ticker, title=market.title[:80], side=side,
             entry_price=price, contracts=count, cost=cost,
             entry_time=datetime.now(timezone.utc).isoformat(),
@@ -622,24 +622,24 @@ class KalshiTradingAgent:
                     "updated": datetime.now(timezone.utc).isoformat(),
                     "session": {"scanned": self.stats.scanned, "placed": self.stats.placed,
                                 "exited": self.stats.exited, "skipped": self.stats.skipped,
-                                "position_fp_fps": self.stats.count,
+                                "positions": self.stats.count,
                                 "realized_pnl_dollars_dollars": round(self.stats.realized_pnl_dollars_dollars, 2),
                                 "win_rate": round(self.stats.win_rate, 3)},
-                    "open_position_fp_fps": {
+                    "open_positions": {
                         t: {"title": p.title, "side": p.side, "entry": p.entry_price,
                             "contracts": p.contracts, "cost": p.cost,
                             "timeframe": p.timeframe, "is_game": p.is_game}
-                        for t, p in self.stats.position_fp_fps.items()},
+                        for t, p in self.stats.positions.items()},
                     "all_time_pnl": self._pnl.get("all_time_pnl", 0),
                 }, f, indent=2)
         except Exception as e: log.warning(f"trade_log: {e}")
 
     def _print_stats(self):
         s = self.stats
-        games = sum(1 for p in s.position_fp_fps.values() if p.is_game)
+        games = sum(1 for p in s.positions.values() if p.is_game)
         log.info(f"\n── Stats ───────────────────────────────────────────")
         log.info(f"  Scanned {s.scanned} | Placed {s.placed} | Exited {s.exited} | Skipped {s.skipped}")
-        log.info(f"  Positions {s.count}/{self.config.max_open_position_fp_fps} ({games} games, {s.count-games} other)")
+        log.info(f"  Positions {s.count}/{self.config.max_open_positions} ({games} games, {s.count-games} other)")
         log.info(f"  Session P&L ${s.realized_pnl_dollars_dollars:+.2f} | All-time ${self._pnl.get('all_time_pnl',0):+.2f}")
         log.info(f"  Win rate {s.win_rate:.0%} ({s.wins}W/{s.losses}L)")
         log.info(f"────────────────────────────────────────────────────\n")
