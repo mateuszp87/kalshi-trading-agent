@@ -82,16 +82,19 @@ text-align:center;letter-spacing:0.08em}
 </style>
 </head>
 <body>
+
 <div class="header">
-<div class="brand"><h1>Kalshi Dashboard</h1><span class="tag">LIVE</span></div>
+<div class="brand"><h1>Kalshi Dashboard</h1><span class="tag">LIVE · 7D</span></div>
 <div class="status"><span class="pulse"></span><span>Refresh 15s</span></div>
 </div>
+
 <div id="err"></div>
+
 <div class="metrics">
 <div class="metric info"><div class="metric-label">Balance</div>
 <div class="metric-value mono" id="balance">—</div>
 <div class="metric-sub" id="balance-sub">—</div></div>
-<div class="metric" id="total-pnl-metric"><div class="metric-label">P&L</div>
+<div class="metric" id="total-pnl-metric"><div class="metric-label">P&L (7 days)</div>
 <div class="metric-value mono" id="total-pnl">—</div>
 <div class="metric-sub">Realized + unrealized</div></div>
 <div class="metric" id="realized-metric"><div class="metric-label">Realized</div>
@@ -107,12 +110,14 @@ text-align:center;letter-spacing:0.08em}
 <div class="metric-value mono" id="open-count">—</div>
 <div class="metric-sub" id="open-sub">—</div></div>
 </div>
+
 <div class="tabs">
 <button class="tab active" data-tab="positions">Open positions</button>
-<button class="tab" data-tab="orders">Orders</button>
-<button class="tab" data-tab="settles">Settled</button>
+<button class="tab" data-tab="orders">Orders (7d)</button>
+<button class="tab" data-tab="settles">Settled (7d)</button>
 <button class="tab" data-tab="markets">Live markets</button>
 </div>
+
 <div class="panel active" id="panel-positions">
 <div class="shead"><h2>Open positions</h2><span class="pill" id="pos-pill">—</span></div>
 <div class="table"><div class="thead cols-pos">
@@ -120,20 +125,23 @@ text-align:center;letter-spacing:0.08em}
 <div>Now</div><div>Cost</div><div>If wins</div><div class="right">Unreal P&L</div></div>
 <div id="positions-body"><div class="loading">Loading…</div></div></div>
 </div>
+
 <div class="panel" id="panel-orders">
-<div class="shead"><h2>Orders placed</h2><span class="pill" id="orders-pill">—</span></div>
+<div class="shead"><h2>Orders placed (past 7 days)</h2><span class="pill" id="orders-pill">—</span></div>
 <div class="table"><div class="thead cols-order">
 <div>Time</div><div>Market</div><div>Side</div><div>Action</div>
 <div>Qty</div><div>Price</div><div class="right">Total</div></div>
 <div id="orders-body"><div class="loading">Loading…</div></div></div>
 </div>
+
 <div class="panel" id="panel-settles">
-<div class="shead"><h2>Settled trades</h2><span class="pill" id="settles-pill">—</span></div>
+<div class="shead"><h2>Settled trades (past 7 days)</h2><span class="pill" id="settles-pill">—</span></div>
 <div class="table"><div class="thead cols-settle">
 <div>Time</div><div>Market</div><div>Side</div><div>Qty</div>
 <div>Cost</div><div>Returned</div><div class="right">P&L</div></div>
 <div id="settles-body"><div class="loading">Loading…</div></div></div>
 </div>
+
 <div class="panel" id="panel-markets">
 <div class="shead"><h2>Live markets on Kalshi</h2><span class="pill" id="markets-pill">—</span></div>
 <div class="table"><div class="thead cols-mkt">
@@ -141,7 +149,9 @@ text-align:center;letter-spacing:0.08em}
 <div>Spread</div><div>Closes</div><div class="right">Price</div></div>
 <div id="markets-body"><div class="loading">Click tab to load</div></div></div>
 </div>
+
 <div class="footer"><span id="refresh-time">Initializing…</span></div>
+
 <script>
 document.querySelectorAll('.tab').forEach(t => {
   t.onclick = () => {
@@ -152,12 +162,14 @@ document.querySelectorAll('.tab').forEach(t => {
     if (t.dataset.tab === 'markets') loadMarkets();
   };
 });
+
 const fmt = {
   money: n => '$' + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2}),
   signed: n => (n>0?'+':n<0?'-':'') + '$' + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2}),
   vol: n => n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?Math.round(n/1e3)+'k':String(Math.round(n)),
-  short: s => s && s.length>48?s.slice(0,46)+'…':(s||''),
+  short: s => s && s.length>50?s.slice(0,48)+'…':(s||''),
 };
+
 function setPNL(id, val, metricId) {
   const el = document.getElementById(id);
   el.textContent = fmt.signed(val);
@@ -171,13 +183,18 @@ function setPNL(id, val, metricId) {
     else if (val<-0.01) m.classList.add('neg');
   }
 }
+
 async function loadPortfolio() {
   try {
     const r = await fetch('/api/portfolio');
     const d = await r.json();
-    if (d.error) { document.getElementById('err').innerHTML = '<div class="error">⚠ ' + d.error + '</div>'; return; }
+    if (d.error) {
+      document.getElementById('err').innerHTML = '<div class="error">⚠ ' + d.error + '</div>';
+      return;
+    }
     document.getElementById('err').innerHTML = '';
     const s = d.stats;
+
     document.getElementById('balance').textContent = fmt.money(d.balance);
     document.getElementById('balance-sub').textContent = 'Open exposure ' + fmt.money(s.total_open_cost);
     setPNL('total-pnl', s.total_pnl, 'total-pnl-metric');
@@ -185,6 +202,7 @@ async function loadPortfolio() {
     setPNL('unrealized', s.unrealized_pnl, 'unrealized-metric');
     document.getElementById('realized-sub').textContent = s.total_settled + ' settled trades';
     document.getElementById('unrealized-sub').textContent = d.positions.length + ' positions';
+
     if (s.total_settled === 0) {
       document.getElementById('winrate').textContent = '—';
       document.getElementById('winrate-sub').textContent = 'No settled yet';
@@ -197,6 +215,8 @@ async function loadPortfolio() {
     document.getElementById('pos-pill').textContent = d.positions.length + ' open';
     document.getElementById('orders-pill').textContent = s.total_orders + ' orders';
     document.getElementById('settles-pill').textContent = s.total_settled + ' settled';
+
+    // Open positions
     document.getElementById('positions-body').innerHTML = d.positions.length === 0
       ? '<div class="loading">No open positions</div>'
       : d.positions.map(p => `<div class="trow cols-pos">
@@ -209,33 +229,39 @@ async function loadPortfolio() {
           <div class="pos">${fmt.money(p.profit_if_win)}</div>
           <div class="right ${p.unrealized_pnl>0.01?'pos':p.unrealized_pnl<-0.01?'neg':'dim'}">${fmt.signed(p.unrealized_pnl)}</div>
         </div>`).join('');
+
+    // Orders
     document.getElementById('orders-body').innerHTML = !d.orders || d.orders.length === 0
-      ? '<div class="loading">No orders yet</div>'
+      ? '<div class="loading">No orders in past 7 days</div>'
       : d.orders.map(o => `<div class="trow cols-order">
           <div class="dim">${o.time}</div>
-          <div class="trunc" title="${o.ticker}">${o.title || fmt.short(o.ticker)}</div>
+          <div class="trunc" title="${o.ticker}">${fmt.short(o.ticker)}</div>
           <div><span class="badge ${(o.side||'').toLowerCase()}">${o.side}</span></div>
           <div><span class="badge ${o.action.toLowerCase()}">${o.action}</span></div>
           <div>${o.count}</div>
           <div>${Math.round(o.price*100)}¢</div>
           <div class="right">${fmt.money(o.total)}</div>
         </div>`).join('');
+
+    // Settlements
     document.getElementById('settles-body').innerHTML = d.settlements.length === 0
-      ? '<div class="loading">No settled trades yet</div>'
+      ? '<div class="loading">No settled trades in past 7 days</div>'
       : d.settlements.map(t => `<div class="trow cols-settle">
           <div class="dim">${t.time}</div>
-          <div class="trunc" title="${t.ticker}">${t.title || fmt.short(t.ticker)}</div>
+          <div class="trunc" title="${t.ticker}">${fmt.short(t.ticker)}</div>
           <div><span class="badge ${(t.side||'').toLowerCase()}">${t.side||'—'}</span></div>
           <div>${t.count}</div>
           <div>${fmt.money(t.cost)}</div>
           <div>${fmt.money(t.revenue)}</div>
           <div class="right ${t.pnl>0?'pos':t.pnl<0?'neg':'dim'}">${fmt.signed(t.pnl)}</div>
         </div>`).join('');
+
     document.getElementById('refresh-time').textContent = 'Last updated ' + new Date().toLocaleTimeString();
   } catch (e) {
     document.getElementById('err').innerHTML = '<div class="error">⚠ ' + e.message + '</div>';
   }
 }
+
 async function loadMarkets() {
   const body = document.getElementById('markets-body');
   body.innerHTML = '<div class="loading">Scanning…</div>';
@@ -264,6 +290,7 @@ async function loadMarkets() {
     body.innerHTML = '<div class="loading">Error: ' + e.message + '</div>';
   }
 }
+
 loadPortfolio();
 setInterval(loadPortfolio, 15000);
 </script>

@@ -121,8 +121,10 @@ async def main():
                     cost = float(s.get("cost", 0)) / 100
                     p2   = round(rev - cost, 2)
                     t    = s.get("market_ticker", "")
-                    tag  = "✅ WIN" if p2 > 0 else "❌ LOSS"
-                    print(f"      {tag} | {t[:42]:<42} | ${p2:+.2f}")
+                    cost = float(s2.get("cost", 0) or 0) / 100
+                    pnl2 = round(rev - cost, 2)
+                    tag  = "✅ WIN" if pnl2 > 0 else "❌ LOSS"
+                    print(f"      {tag} | {t[:38]:<38} | cost=${cost:.2f} rev=${rev:.2f} P&L=${pnl2:+.2f}")
                 print()
             else:
                 print("  ℹ️   No new settlements.\n")
