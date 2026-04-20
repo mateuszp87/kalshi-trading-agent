@@ -418,76 +418,7 @@ class KalshiTradingAgent:
         event_tickers_seen = set()
         for market in tradeable[:8]:
             if self.stats.count >= self.config.max_open_positions: break
-            if market.ticker in self.stats.positions: continue
-            # Skip if we already have a bet on this game (same event, different outcome)
-            event_root = market.ticker.rsplit("-", 1)[0]
-            if event_root in event_tickers_seen:
-                log.info(f"  → SKIP already have position_fp in this game ({event_root})")
-                continue
-            event_tickers_seen.add(event_root)
-            self.stats.scanned += 1
-            before = self.stats.placed
-            await self._evaluate(client, market, "sports")
-            await asyncio.sleep(1)
-            if self.stats.placed > before:
-                placed += 1
-                if placed >= 2:  # Max 2 trades per scan — force selectivity
-                    log.info("  Placed 2 trades this scan — moving to exit management only")
-                    break
-
-        # ── Step 2: Daily crypto if slots remain ─────────────────
-        if self.stats.count < self.config.max_open_positions:
-            log.info("\n[CRYPTO] Daily markets...")
-            crypto_mkts = await client.get_series_markets(["KXBTCD","KXETHD"], limit=10)
-            daily_crypto = [m for m in crypto_mkts
-                           if (m.yes_bid > 0 or m.yes_ask > 0)
-                           and m.hours_until_close is not None
-                           and m.hours_until_close <= 24]
-            daily_crypto.sort(key=profit_score, reverse=True)
-            for m in daily_crypto[:3]:
-                if self.stats.count >= self.config.max_open_positions: break
-                if m.ticker in self.stats.positions: continue
-                self.stats.scanned += 1
-                await self._evaluate(client, m, "crypto")
-                await asyncio.sleep(1)
-
-        # ── Step 3: Daily weather if slots remain ─────────────────
-        if self.stats.count < self.config.max_open_positions:
-            log.info("\n[WEATHER] Daily markets...")
-            wx_mkts = await client.get_series_markets(["KXHIGHNY","RAINNY"], limit=10)
-            daily_wx = [m for m in wx_mkts
-                       if (m.yes_bid > 0 or m.yes_ask > 0)
-                       and m.hours_until_close is not None
-                       and m.hours_until_close <= 24]
-            daily_wx.sort(key=profit_score, reverse=True)
-            for m in daily_wx[:3]:
-                if self.stats.count >= self.config.max_open_positions: break
-                if m.ticker in self.stats.positions: continue
-                self.stats.scanned += 1
-                await self._evaluate(client, m, "weather")
-                await asyncio.sleep(1)
-
-        # ── Step 4: Fallback econ/politics if zero sports found ────
-        if placed == 0 and self.stats.count < self.config.max_open_positions:
-            log.info("\n[FALLBACK] No sports trades found — checking econ/politics...")
-            fb_mkts = await client.get_series_markets(FALLBACK_SERIES, limit=8)
-            fb_tradeable = [m for m in fb_mkts if m.yes_bid > 0 or m.yes_ask > 0]
-            fb_tradeable.sort(key=profit_score, reverse=True)
-            for m in fb_tradeable[:3]:
-                if self.stats.count >= self.config.max_open_positions: break
-                if m.ticker in self.stats.positions: continue
-                cat = "econ" if any(x in m.ticker for x in ["CPI","FED","GDP","INXZ"]) else "politics"
-                self.stats.scanned += 1
-                await self._evaluate(client, m, cat)
-                await asyncio.sleep(1)
-
-    async def _evaluate(self, client, market: KalshiMarket, category: str):
-        cat_cfg = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG["sports"])
-        # Dedup: exact ticker only, allow multiple markets per game
-        if market.ticker in self.stats.positions:
-            log.info(f"  → SKIP already have position_fp in this exact market")
-            self.stats.skipped += 1
-            return
+            # Position check removed
         
         # Cap: max 3 different markets per game event
         event = event_root(market.ticker)
