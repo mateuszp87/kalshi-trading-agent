@@ -483,13 +483,19 @@ class KalshiTradingAgent:
 
     async def _evaluate(self, client, market: KalshiMarket, category: str):
         cat_cfg = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG["sports"])
-        # Event-level dedup
+        # Dedup: exact ticker only, allow multiple markets per game
+        if market.ticker in self.stats.positions:
+            log.info(f"  → SKIP already have position in this exact market")
+            self.stats.skipped += 1
+            return
+        
+        # Cap: max 3 different markets per game event
         event = event_root(market.ticker)
-        for existing_ticker in self.stats.positions:
-            if event_root(existing_ticker) == event:
-                log.info(f"  → SKIP already have position in this event ({event})")
-                self.stats.skipped += 1
-                return
+        event_count = sum(1 for t in self.stats.positions if event_root(t) == event)
+        if event_count >= 3:
+            log.info(f"  → SKIP already have {event_count} positions in this game")
+            self.stats.skipped += 1
+            return
         
         # ═══ UNIVERSAL AUTO-SKIP FILTERS (save Claude API calls) ═══
         title_lower = market.title.lower()
