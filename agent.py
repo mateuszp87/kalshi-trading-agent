@@ -391,13 +391,13 @@ class KalshiTradingAgent:
             log.info("  No slots — exits only")
             return
 
-        log.info(f"
-{'='*60}")
+        log.info("")
+        log.info("=" * 60)
         log.info(f"SCAN — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} | {slots} slots open")
-        log.info(f"{'='*60}")
+        log.info("=" * 60)
 
-        log.info("
-[SPORTS] Fetching best markets...")
+        log.info("")
+        log.info("[SPORTS] Fetching best markets...")
         sports_mkts = await client.get_series_markets(PRIORITY_SERIES, limit=15)
 
         tradeable = [
@@ -501,8 +501,8 @@ class KalshiTradingAgent:
             })
             log.info(f"  ✓ OPP: {market.ticker} {side.upper()} conf={signal.confidence:.0%} edge={signal.edge:+.2f} score={signal.confidence * abs(signal.edge):.3f}")
 
-        log.info(f"
-  {len(opportunities)} BUY opportunities identified")
+        log.info("")
+        log.info(f"  {len(opportunities)} BUY opportunities identified")
 
         # ═══ PHASE 3: Deliberate — if more than slots available, take most guaranteed ═══
         if len(opportunities) > slots:
@@ -520,8 +520,8 @@ class KalshiTradingAgent:
             await self._place(client, opp["market"], opp["side"], opp["signal"], opp["category"])
             placed += 1
 
-        log.info(f"
-  Scan complete: {placed}/{len(opportunities)} trades placed")
+        log.info("")
+        log.info(f"  Scan complete: {placed}/{len(opportunities)} trades placed")
 
     async def _place(self, client, market: KalshiMarket, side: str,
                      signal: TradeSignal, category: str):
