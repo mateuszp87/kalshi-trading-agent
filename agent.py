@@ -388,145 +388,140 @@ class KalshiTradingAgent:
     async def _scan(self, client):
         slots = self.config.max_open_positions - self.stats.count
         if slots <= 0:
-            log.info("  No slots — exits only"); return
+            log.info("  No slots — exits only")
+            return
 
-        log.info(f"\n{'='*60}")
+        log.info(f"
+{'='*60}")
         log.info(f"SCAN — {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} | {slots} slots open")
         log.info(f"{'='*60}")
 
-        # ── Step 1: Fetch ALL priority sports markets ──────────────
-        log.info("\n[SPORTS] Fetching best markets...")
+        log.info("
+[SPORTS] Fetching best markets...")
         sports_mkts = await client.get_series_markets(PRIORITY_SERIES, limit=15)
 
-        # Only keep markets with real pricing and decent liquidity
         tradeable = [
             m for m in sports_mkts
             if (m.yes_bid > 0 or m.yes_ask > 0)
-            and m.volume > 500              # some real trading happened
-            and (m.yes_ask - m.yes_bid) <= 0.10  # not a junk spread
+            and m.volume > 500
+            and (m.yes_ask - m.yes_bid) <= 0.10
         ]
-
-        # Sort by profit potential score (volume × liquidity × urgency)
         tradeable.sort(key=profit_score, reverse=True)
+        log.info(f"  {len(tradeable)} tradeable markets after initial filters")
 
-        log.info(f"  {len(tradeable)} tradeable | top 3 by profit score:")
-        for m in tradeable[:3]:
-            spread = round(m.yes_ask - m.yes_bid, 3) if m.yes_bid and m.yes_ask else '?'
-            h = f"{m.hours_until_close:.0f}h" if m.hours_until_close else '?'
-            log.info(f"    vol={m.volume:,} spread={spread} {h} | {m.title[:50]}")
+        # ═══ PHASE 1: Cheap hard filters — no API calls ═══
+        candidates = []
+        for market in tradeable:
+            h = market.hours_until_close
+            t = market.ticker
 
+            if "KXBTCD" in t or "KXETHD" in t:
+                if market.volume < 100:
+                    continue
+                if market.yes_ask <= 0.02 and market.volume < 1000:
+                    continue
+            if "KXHIGHNY" in t or "RAINNY" in t:
+                now_hour = datetime.now(timezone.utc).hour
+                if h is not None and h < 6 and now_hour >= 18:
+                    continue
+            if "TRUMPMENTION" in t:
+                continue
+            if market.yes_bid >= 0.97 or market.yes_ask >= 0.99:
+                continue
+            if market.yes_ask <= 0.03 and market.yes_bid <= 0.01:
+                continue
+            if h is not None and h < 0.5:
+                continue
+            # Max 3 positions per game event
+            event = event_root(t)
+            if sum(1 for tk in self.stats.positions if event_root(tk) == event) >= 3:
+                continue
+            candidates.append(market)
+
+        log.info(f"  {len(candidates)} passed hard filters — evaluating with Claude...")
+
+        # ═══ PHASE 2: Claude evaluation — collect all BUY recommendations ═══
+        MIN_CONFIDENCE = 0.68
+        opportunities = []
+
+        for market in candidates:
+            self.stats.scanned += 1
+            tu = market.ticker.upper()
+            if any(x in tu for x in ["KXNBA","KXNHL","KXMLB","KXNFL","KXUCL","KXUEL","KXEPL",
+                                      "KXLALIGA","KXSERIEA","KXBUNDESLIGA","KXLIGUE1","KXMLS",
+                                      "KXWNBA","KXCFB","KXCBB","KXATP","KXWTA","KXPGA",
+                                      "KXUFC","KXBOXING"]):
+                category = "sports"
+            elif any(x in tu for x in ["KXBTC","KXETH","BTCUSD","ETHUSD"]):
+                category = "crypto"
+            elif any(x in tu for x in ["KXHIGH","RAINNY","SNOW"]):
+                category = "weather"
+            elif any(x in tu for x in ["CPI","FED","GDP","UNEMPLOYMENT","JOBS","PCE"]):
+                category = "econ"
+            elif any(x in tu for x in ["TRUMP","BIDEN","ELECTION","SENATE","HOUSE","SCOTUS"]):
+                category = "politics"
+            else:
+                category = "sports"
+
+            cat_cfg = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG["sports"])
+            api_val = getattr(self.config, cat_cfg.get("cfg", ""), "")
+            try:
+                signals = await cat_cfg["fetcher"](market.title, **{cat_cfg["key_arg"]: api_val})
+            except Exception as e:
+                log.warning(f"  Signals error {market.ticker}: {e}")
+                signals = {}
+
+            signal = self.reasoner.score_market(market, signals, category)
+            if not signal:
+                self.stats.skipped += 1
+                continue
+            if signal.action == "skip":
+                self.stats.skipped += 1
+                continue
+            if signal.confidence < MIN_CONFIDENCE:
+                self.stats.skipped += 1
+                continue
+
+            thresh = edge_threshold(market)
+            if signal.action == "buy_yes" and signal.edge >= thresh:
+                side = "yes"
+            elif signal.action == "buy_no" and signal.edge <= -thresh:
+                side = "no"
+            else:
+                self.stats.skipped += 1
+                continue
+
+            # Guarantee score = confidence × edge magnitude (higher = more guaranteed)
+            opportunities.append({
+                "market": market,
+                "signal": signal,
+                "side": side,
+                "category": category,
+                "score": signal.confidence * abs(signal.edge),
+            })
+            log.info(f"  ✓ OPP: {market.ticker} {side.upper()} conf={signal.confidence:.0%} edge={signal.edge:+.2f} score={signal.confidence * abs(signal.edge):.3f}")
+
+        log.info(f"
+  {len(opportunities)} BUY opportunities identified")
+
+        # ═══ PHASE 3: Deliberate — if more than slots available, take most guaranteed ═══
+        if len(opportunities) > slots:
+            log.info(f"  More opportunities than slots ({len(opportunities)} > {slots}) — ranking by confidence × edge...")
+            opportunities.sort(key=lambda o: o["score"], reverse=True)
+            opportunities = opportunities[:slots]
+            log.info(f"  → Taking top {len(opportunities)} most guaranteed trades")
+
+        # ═══ PHASE 4: Place trades ═══
         placed = 0
-        # Track event tickers to avoid betting both sides of same game
-        event_tickers_seen = set()
-        for market in tradeable[:20]:  # scan 20 per cycle for more opportunities
-            if self.stats.count >= self.config.max_open_positions: break
-            # Position check removed
-        
-        # Cap: max 3 different markets per game event
-        event = event_root(market.ticker)
-        event_count = sum(1 for t in self.stats.positions if event_root(t) == event)
-        # Game limit removed
-        
-        # ═══ UNIVERSAL AUTO-SKIP FILTERS (save Claude API calls) ═══
-        title_lower = market.title.lower()
-        h = market.hours_until_close
-        
-        # Crypto binaries: mostly untradeable garbage
-        if "KXBTCD" in market.ticker or "KXETHD" in market.ticker:
-            # Zero volume = dead market
-            if market.volume < 100:
-                log.info(f"  → SKIP crypto binary zero volume")
-                self.stats.skipped += 1
-                return
-            # Extreme strikes (far from spot) at 1c = fair priced
-            if market.yes_ask <= 0.02 and market.volume < 1000:
-                log.info(f"  → SKIP crypto binary at 1c with thin volume")
-                self.stats.skipped += 1
-                return
-        
-        # Weather markets: skip if same-day temp already likely set
-        if "KXHIGHNY" in market.ticker or "RAINNY" in market.ticker:
-            import datetime as _dt
-            now_hour = _dt.datetime.now(_dt.timezone.utc).hour
-            # After 6pm UTC (~2pm ET) same-day temp markets are mostly resolved
-            if h is not None and h < 6 and now_hour >= 18:
-                log.info(f"  → SKIP weather market closing soon, temp likely set")
-                self.stats.skipped += 1
-                return
-        
-        # "What will Trump say" politics — essentially random
-        if "TRUMPMENTION" in market.ticker:
-            log.info(f"  → SKIP Trump mention markets are unpredictable")
-            self.stats.skipped += 1
-            return
-        
-        # Skip markets already near-resolved
-        if market.yes_bid >= 0.97 or market.yes_ask >= 0.99:
-            log.info(f"  → SKIP market already near-resolved (bid={market.yes_bid:.2f} ask={market.yes_ask:.2f})")
-            self.stats.skipped += 1
-            return
-        if market.yes_ask <= 0.03 and market.yes_bid <= 0.01:
-            log.info(f"  → SKIP market near-zero (too resolved)")
-            self.stats.skipped += 1
-            return
-        # Skip markets closing in less than 30 minutes
-        if market.hours_until_close is not None and market.hours_until_close < 0.5:
-            log.info(f"  → SKIP closing too soon ({market.hours_until_close:.1f}h left)")
-            self.stats.skipped += 1
-            return
-        game_flag = is_game(market.title)
-        spread = round(market.yes_ask - market.yes_bid, 3) if market.yes_bid and market.yes_ask else '?'
-        log.info(f"\n  {'🏀' if game_flag else '📊'} {market.title[:68]}")
-        log.info(f"  {market.ticker} | mid={market.mid_price:.2f} spread={spread} vol={market.volume:,} | [{market.timeframe_label}]")
+        for opp in opportunities:
+            if self.stats.count >= self.config.max_open_positions:
+                log.info("  Max positions reached — stopping")
+                break
+            await self._place(client, opp["market"], opp["side"], opp["signal"], opp["category"])
+            placed += 1
 
-        # Auto-detect category from ticker prefix
-        t = market.ticker.upper()
-        if any(x in t for x in ["KXNBA", "KXNHL", "KXMLB", "KXNFL", "KXUCL", "KXUEL", "KXEPL",
-                                 "KXLALIGA", "KXSERIEA", "KXBUNDESLIGA", "KXLIGUE1", "KXMLS",
-                                 "KXWNBA", "KXCFB", "KXCBB", "KXATP", "KXWTA", "KXPGA",
-                                 "KXUFC", "KXBOXING"]):
-            category = "sports"
-        elif any(x in t for x in ["KXBTC", "KXETH", "KXBTCD", "KXETHD", "BTCUSD", "ETHUSD"]):
-            category = "crypto"
-        elif any(x in t for x in ["KXHIGHNY", "KXHIGHDEN", "KXHIGHCHI", "KXHIGHLAX", "RAINNY", "SNOW"]):
-            category = "weather"
-        elif any(x in t for x in ["CPI", "FED", "GDP", "UNEMPLOYMENT", "JOBS", "PCE"]):
-            category = "econ"
-        elif any(x in t for x in ["TRUMP", "BIDEN", "ELECTION", "SENATE", "HOUSE", "SCOTUS"]):
-            category = "politics"
-        else:
-            category = "sports"  # safe default — PRIORITY_SERIES is sports-heavy
-
-        cat_cfg = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG["sports"])
-        api_val = getattr(self.config, cat_cfg.get("cfg", ""), "")
-        try:
-            signals = await cat_cfg["fetcher"](market.title, **{cat_cfg["key_arg"]: api_val})
-        except Exception as e:
-            log.warning(f"  Signals error: {e}"); signals = {}
-
-        log.info(f"  Signals: {list(signals.keys()) if signals else 'none'}")
-        signal = self.reasoner.score_market(market, signals, category)
-        if not signal: log.warning("  Claude returned None"); return
-
-        log.info(f"  Claude: prob={signal.estimated_prob:.2f} edge={signal.edge:+.2f} action={signal.action} conf={signal.confidence:.0%}")
-        log.info(f"  {signal.reasoning}")
-
-        if signal.action == "skip":
-            log.info("  → SKIP"); self.stats.skipped += 1; return
-
-        thresh = edge_threshold(market)
-        MIN_CONFIDENCE = 0.70  # require 70%+ confidence — aiming at 70% win rate
-        if signal.confidence < MIN_CONFIDENCE:
-            log.info(f"  → SKIP confidence {signal.confidence:.0%} < 70% minimum")
-            self.stats.skipped += 1
-            return
-        if signal.action == "buy_yes" and signal.edge >= thresh:
-            await self._place(client, market, "yes", signal, category)
-        elif signal.action == "buy_no" and signal.edge <= -thresh:
-            await self._place(client, market, "no", signal, category)
-        else:
-            log.info(f"  → SKIP (edge {signal.edge:+.2f} below {thresh:.2f} threshold)")
-            self.stats.skipped += 1
+        log.info(f"
+  Scan complete: {placed}/{len(opportunities)} trades placed")
 
     async def _place(self, client, market: KalshiMarket, side: str,
                      signal: TradeSignal, category: str):
