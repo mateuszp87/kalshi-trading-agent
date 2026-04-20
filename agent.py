@@ -172,7 +172,7 @@ class Stats:
     exited: int = 0
     skipped: int = 0
     scanned: int = 0
-    realized_pnl_dollars_dollars: float = 0.0
+    realized_pnl_dollars: float = 0.0
     wins: int = 0
     losses: int = 0
     positions: dict = field(default_factory=dict)
@@ -231,7 +231,7 @@ class KalshiTradingAgent:
                 except Exception as e: log.error(f"Cycle error: {e}", exc_info=True)
 
                 self._print_stats()
-                if self.stats.realized_pnl_dollars_dollars <= -self.config.max_daily_loss:
+                if self.stats.realized_pnl_dollars <= -self.config.max_daily_loss:
                     log.warning("Daily loss limit — stopping."); break
 
                 wait = random.randint(self.config.scan_interval_min, self.config.scan_interval_max)
@@ -242,7 +242,7 @@ class KalshiTradingAgent:
         """Load real open positions from Kalshi on startup."""
         try:
             real = await client.get_positions()
-            for cat_cfg in real:
+            for p in real:
                 ticker = p.get("market_ticker", p.get("ticker", ""))
                 yes_ct = int(float(p.get("position_fp", 0) or 0))
                 no_ct  = int(float(p.get("position_fp", 0) or 0))
@@ -283,7 +283,7 @@ class KalshiTradingAgent:
                     "type": "settlement", "pnl": pnl, "won": won,
                     "time": s.get("created_time", datetime.now(timezone.utc).isoformat())})
                 known.add(sid)
-                self.stats.realized_pnl_dollars_dollars += pnl
+                self.stats.realized_pnl_dollars += pnl
                 if won: self.stats.wins += 1
                 else:   self.stats.losses += 1
                 log.info(f"  {'✅ WIN' if won else '❌ LOSS'} SETTLED: {ticker} | ${pnl:+.2f}")
@@ -369,7 +369,7 @@ class KalshiTradingAgent:
                 if not result: log.warning(f"  Sell failed {ticker}"); continue
             else:
                 log.info(f"  [DRY RUN] SELL {pos.side.upper()} {pos.contracts}x {ticker} @ {current:.2f}")
-            self.stats.realized_pnl_dollars_dollars += pnl
+            self.stats.realized_pnl_dollars += pnl
             self.stats.exited += 1
             if pnl > 0: self.stats.wins += 1
             else:       self.stats.losses += 1
@@ -477,6 +477,7 @@ class KalshiTradingAgent:
         log.info(f"\n  {'🏀' if game_flag else '📊'} {market.title[:68]}")
         log.info(f"  {market.ticker} | mid={market.mid_price:.2f} spread={spread} vol={market.volume:,} | [{market.timeframe_label}]")
 
+        cat_cfg = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG.get("sports", {}))
         api_val = getattr(self.config, cat_cfg.get("cfg", ""), "")
         try:
             signals = await cat_cfg["fetcher"](market.title, **{cat_cfg["key_arg"]: api_val})
@@ -554,7 +555,7 @@ class KalshiTradingAgent:
                     "session": {"scanned": self.stats.scanned, "placed": self.stats.placed,
                                 "exited": self.stats.exited, "skipped": self.stats.skipped,
                                 "positions": self.stats.count,
-                                "realized_pnl_dollars_dollars": round(self.stats.realized_pnl_dollars_dollars, 2),
+                                "realized_pnl_dollars": round(self.stats.realized_pnl_dollars, 2),
                                 "win_rate": round(self.stats.win_rate, 3)},
                     "open_positions": {
                         t: {"title": p.title, "side": p.side, "entry": p.entry_price,
@@ -571,6 +572,6 @@ class KalshiTradingAgent:
         log.info(f"\n── Stats ───────────────────────────────────────────")
         log.info(f"  Scanned {s.scanned} | Placed {s.placed} | Exited {s.exited} | Skipped {s.skipped}")
         log.info(f"  Positions {s.count}/{self.config.max_open_positions} ({games} games, {s.count-games} other)")
-        log.info(f"  Session P&L ${s.realized_pnl_dollars_dollars:+.2f} | All-time ${self._pnl.get('all_time_pnl',0):+.2f}")
+        log.info(f"  Session P&L ${s.realized_pnl_dollars:+.2f} | All-time ${self._pnl.get('all_time_pnl',0):+.2f}")
         log.info(f"  Win rate {s.win_rate:.0%} ({s.wins}W/{s.losses}L)")
         log.info(f"────────────────────────────────────────────────────\n")
