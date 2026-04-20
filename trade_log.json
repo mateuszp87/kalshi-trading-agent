@@ -1,0 +1,24 @@
+{
+  "updated": "2026-04-20T21:47:20.593890+00:00",
+  "session": {
+    "scanned": 1,
+    "placed": 1,
+    "exited": 0,
+    "skipped": 0,
+    "positions": 1,
+    "realized_pnl": 0.0,
+    "win_rate": 0.0
+  },
+  "open_positions": {
+    "KXNBASERIES-26HOULALR1-LAL": {
+      "title": "Houston vs Los Angeles L 2026 1st Round series winner?",
+      "side": "yes",
+      "entry": 0.36,
+      "contracts": 7,
+      "cost": 2.52,
+      "timeframe": "THIS MONTH",
+      "is_game": true
+    }
+  },
+  "all_time_pnl": 0.0
+}

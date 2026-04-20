@@ -58,7 +58,7 @@ MLB (April - pitcher is 60% of signal):
 
 ═══ CURRENT STATE (April 18, 2026) ═══
 
-NBA PLAYOFFS:
+NBA PLAYOFFS: (Zig-Zag Theory: Favor TOR +8.5 and MIN +6.5 as market overreacted to G1)
 - Boston dominant vs Philadelphia
 - Warriors-Phoenix tied 2-2, home team ~58%
 - Orlando STRONG hosts Charlotte WEAK: Orlando 72%+ = FAIR at 70-75c
