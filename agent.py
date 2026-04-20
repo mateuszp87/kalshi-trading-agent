@@ -36,7 +36,7 @@ STOP_LOSS   = 0.15   # tighter — cut losses fast
 # ── Ordered by profitability (volume × liquidity) ─────────────
 PRIORITY_SERIES = [
     # NBA — all markets, highest liquidity
-    "KXNBAGAME", "KXNBASPREAD", "KXNBATOTAL",            # NBA game winner           (main target)
+    "KXNBAGAME", "KXNBASPREAD", "KXNBATOTAL", "KXNBASERIES", "KXNBASPREAD", "KXNBATOTAL",            # NBA game winner           (main target)
     "KXNBASERIESSPREAD",    # NBA series spread
     "KXNBASERIESGAMES",     # NBA series total games
     "KXNBA1HWINNER",        # NBA 1st half winner
@@ -60,7 +60,7 @@ PRIORITY_SERIES = [
     "KXLIGUE1GAME",         # Ligue 1
     "KXMLSGAME",            # MLS
     # NHL playoffs
-    "KXNHLGAME", "KXNHLSPREAD", "KXNHLGOALS",            # NHL game winner
+    "KXNHLGAME", "KXNHLSERIES", "KXNHLSPREAD", "KXNHLSPREAD", "KXNHLGOALS",            # NHL game winner
     "KXNHLSERIES",          # NHL series winner
     "KXNHLPLAYOFFGOALS",    # NHL player goals
     # MLB — now in season
@@ -146,7 +146,7 @@ def edge_threshold(m: KalshiMarket) -> float:
         return 0.20  # 20 cent edge required
 
     # Mid-range liquid markets: require sharp mispricing
-    if spread <= 0.02 and vol > 100000: return 0.12   # was 0.08
+    if spread <= 0.02 and vol > 100000: return 0.05   # was 0.08
     if spread <= 0.05 and vol > 10000:  return 0.15   # was 0.10
     if spread <= 0.10 and vol > 1000:   return 0.18   # was 0.13
     return 0.25  # illiquid markets need massive edge
