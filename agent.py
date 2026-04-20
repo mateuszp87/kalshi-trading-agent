@@ -477,7 +477,25 @@ class KalshiTradingAgent:
         log.info(f"\n  {'🏀' if game_flag else '📊'} {market.title[:68]}")
         log.info(f"  {market.ticker} | mid={market.mid_price:.2f} spread={spread} vol={market.volume:,} | [{market.timeframe_label}]")
 
-        cat_cfg = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG.get("sports", {}))
+        # Auto-detect category from ticker prefix
+        t = market.ticker.upper()
+        if any(x in t for x in ["KXNBA", "KXNHL", "KXMLB", "KXNFL", "KXUCL", "KXUEL", "KXEPL",
+                                 "KXLALIGA", "KXSERIEA", "KXBUNDESLIGA", "KXLIGUE1", "KXMLS",
+                                 "KXWNBA", "KXCFB", "KXCBB", "KXATP", "KXWTA", "KXPGA",
+                                 "KXUFC", "KXBOXING"]):
+            category = "sports"
+        elif any(x in t for x in ["KXBTC", "KXETH", "KXBTCD", "KXETHD", "BTCUSD", "ETHUSD"]):
+            category = "crypto"
+        elif any(x in t for x in ["KXHIGHNY", "KXHIGHDEN", "KXHIGHCHI", "KXHIGHLAX", "RAINNY", "SNOW"]):
+            category = "weather"
+        elif any(x in t for x in ["CPI", "FED", "GDP", "UNEMPLOYMENT", "JOBS", "PCE"]):
+            category = "econ"
+        elif any(x in t for x in ["TRUMP", "BIDEN", "ELECTION", "SENATE", "HOUSE", "SCOTUS"]):
+            category = "politics"
+        else:
+            category = "sports"  # safe default — PRIORITY_SERIES is sports-heavy
+
+        cat_cfg = CATEGORY_CONFIG.get(category, CATEGORY_CONFIG["sports"])
         api_val = getattr(self.config, cat_cfg.get("cfg", ""), "")
         try:
             signals = await cat_cfg["fetcher"](market.title, **{cat_cfg["key_arg"]: api_val})
