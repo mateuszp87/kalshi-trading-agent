@@ -491,8 +491,18 @@ class KalshiTradingAgent:
             ticker_upper = (market.ticker or "").upper()
             is_weather = "HIGHNY" in ticker_upper or "HIGHDEN" in ticker_upper or "HIGHCHI" in ticker_upper or "HIGHLAX" in ticker_upper
             if is_weather:
-                pass  # skip the event-dedup for weather
+                pass  # weather buckets are separate bets
             else:
+                # Check if existing position count is small — allow averaging in
+                existing_count = self.position_counts.get(event_key, 0) if hasattr(self, "position_counts") else 0
+                if existing_count >= 3:
+                    log.info(f"  → SKIP at position limit (3x) in this event")
+                    self.stats.skipped += 1
+                    return
+                log.info(f"  ℹ️  adding to existing position in event (have {existing_count})")
+                # don't return — continue evaluating
+                pass
+            if False:  # disable old skip path
                 log.info(f"  → SKIP already have position in this event ({event})")
                 self.stats.skipped += 1
                 return
@@ -519,7 +529,7 @@ class KalshiTradingAgent:
             import datetime as _dt
             now_hour = _dt.datetime.now(_dt.timezone.utc).hour
             # After 6pm UTC (~2pm ET) same-day temp markets are mostly resolved
-            if h is not None and h < 6 and now_hour >= 18:
+            if h is not None and h < 6 and now_hour >= 21:
                 log.info(f"  → SKIP weather market closing soon, temp likely set")
                 self.stats.skipped += 1
                 return
