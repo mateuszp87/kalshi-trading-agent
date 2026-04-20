@@ -35,51 +35,44 @@ STOP_LOSS   = 0.15   # tighter — cut losses fast
 
 # ── Ordered by profitability (volume × liquidity) ─────────────
 PRIORITY_SERIES = [
-    # NBA — all markets, highest liquidity
-    "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBASPREAD", "KXNBATOTAL", "KXNBAGAME", "KXNBASERIES", "KXNBASERIES", "KXNBASERIES", "KXNBASPREAD", "KXNBATOTAL", "KXNBASERIES", "KXNBASPREAD", "KXNBATOTAL",            # NBA game winner           (main target)
-    "KXNBASERIESSPREAD",    # NBA series spread
-    "KXNBASERIESGAMES",     # NBA series total games
-    "KXNBA1HWINNER",        # NBA 1st half winner
-    "KXNBA2HWINNER",        # NBA 2nd half winner
-    "KXNBA1QWINNER",        # NBA quarters
+    # ═══ SAME-DAY MARKETS ONLY — resolve within 24h ═══
+    # NBA individual games (resolve tonight)
+    "KXNBAGAME",
+    "KXNBA1HWINNER",    # 1st half — resolves in ~1h
+    "KXNBA2HWINNER",    # 2nd half — resolves in ~2h
+    "KXNBA1QWINNER",    # Q1 — resolves in ~30 min
     "KXNBA2QWINNER",
     "KXNBA3QWINNER",
     "KXNBA4QWINNER",
-    "KXNBAPLAYOFFPTS",      # NBA player points props
-    "KXNBAPLAYERPTS",       # NBA regular points props
-    "KXNBAPLAYOFFAST",      # NBA player assists
-    "KXNBAPLAYOFFREB",      # NBA player rebounds
-    "KXNBAPLAYOFFMADE3",    # NBA 3-pointers made
-    # Soccer — top 5 leagues + UCL
-    "KXUCLGAME",            # Champions League
-    "KXUELGAME",            # Europa League
-    "KXEPLGAME",            # Premier League
-    "KXLALIGAGAME",         # La Liga
-    "KXSERIEAGAME",         # Serie A
-    "KXBUNDESLIGAGAME",     # Bundesliga
-    "KXLIGUE1GAME",         # Ligue 1
-    "KXMLSGAME",            # MLS
-    # NHL playoffs
-    "KXNHLSPREAD", "KXNHLSPREAD", "KXNHLSPREAD", "KXNHLGOALS", "KXNHLGAME", "KXNHLSERIES", "KXNHLSERIES", "KXNHLSPREAD", "KXNHLSPREAD", "KXNHLGOALS",            # NHL game winner
-    "KXNHLSERIES",          # NHL series winner
-    "KXNHLPLAYOFFGOALS",    # NHL player goals
-    # MLB — now in season
-    "KXMLBGAME",            # MLB game winner
-    "KXMLBF5",              # MLB first 5 innings
-    "KXMLBRUNS",            # MLB total runs
-    "KXMLBHOMERUN",         # MLB home run props
-    # Other pro leagues
-    "KXWNBAGAME",           # WNBA when in season
-    "KXCFBGAME",            # College football
-    "KXCBBGAME",            # College basketball
-    # Tennis & golf
-    "KXATPMATCH",           # ATP tennis
-    "KXWTAMATCH",           # WTA tennis
-    "KXPGARNDLEAD",         # PGA round leaders
-    "KXPGATOUR",            # PGA tournament winner
-    # Boxing / MMA
-    "KXUFCFIGHT",           # UFC fight
-    "KXBOXINGFIGHT",        # Boxing
+    "KXNBAPLAYERPTS",   # Player points — same game
+    "KXNBAPLAYOFFPTS",
+    # NHL games (resolve tonight)
+    "KXNHLGAME",
+    # MLB games (resolve today/tonight)
+    "KXMLBGAME",
+    "KXMLBF5",          # First 5 innings — resolves in ~1.5h
+    "KXMLBRUNS",        # Total runs — same game
+    # Soccer matches (resolve in ~2h)
+    "KXEPLGAME",
+    "KXUCLGAME",
+    "KXUELGAME",
+    "KXLALIGAGAME",
+    "KXSERIEAGAME",
+    "KXBUNDESLIGAGAME",
+    "KXLIGUE1GAME",
+    "KXMLSGAME",
+    # Tennis (resolves in ~2-4h)
+    "KXATPMATCH",
+    "KXWTAMATCH",
+    # Weather (resolves today)
+    "KXHIGHNY",
+    "KXHIGHDEN",
+    "KXHIGHCHI",
+    "KXHIGHLAX",
+    "KXRAINNY",
+    # Crypto daily (resolves today)
+    "KXBTCD",
+    "KXETHD",
 ]
 
 DAILY_SERIES = [
@@ -104,16 +97,25 @@ CATEGORY_CONFIG = {
 
 
 def profit_score(m: KalshiMarket) -> float:
-    """Score each market by expected profit potential.
-    Higher volume + tighter spread + sooner close = better score."""
+    """Score by FAST-CLOSE profit potential. Heavily favor same-day markets."""
     vol    = m.volume or 0
     spread = max((m.yes_ask - m.yes_bid) if m.yes_bid and m.yes_ask else 0.5, 0.001)
     h      = m.hours_until_close or 9999
-    # Reward: volume (liquidity), tight spread (real market), urgency
+    
+    # HARD GATE: markets beyond 48h get zero score (won't be picked)
+    if h > 48:
+        return 0.0
+    
+    # Urgency tiers — heavily favor same-day
+    if h < 3:       urgency = 5000    # resolves in hours
+    elif h < 12:    urgency = 2000    # resolves today
+    elif h < 24:    urgency = 800     # resolves within 24h
+    elif h < 48:    urgency = 200     # tomorrow
+    else:           urgency = 0       # blocked above
+    
     vol_score    = min(vol / 10000, 1000)
-    spread_score = 1.0 / spread          # tighter = better
-    time_score   = max(1000 / h, 1)     # sooner = better, but don't over-penalize long ones
-    return vol_score * spread_score * time_score
+    spread_score = 1.0 / spread       # tighter = better
+    return vol_score * spread_score * urgency
 
 
 def event_root(ticker: str) -> str:
@@ -416,7 +418,7 @@ class KalshiTradingAgent:
         placed = 0
         # Track event tickers to avoid betting both sides of same game
         event_tickers_seen = set()
-        for market in tradeable[:8]:
+        for market in tradeable[:20]:  # scan 20 per cycle for more opportunities
             if self.stats.count >= self.config.max_open_positions: break
             # Position check removed
         
