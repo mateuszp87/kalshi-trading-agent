@@ -225,21 +225,22 @@ class KalshiClient:
             return []
 
     async def place_order(self, ticker, side, price_dollars, count):
-        yes_price_dollars = price_dollars if side == "yes" else round(1 - price_dollars, 4)
-        yes_cents = max(1, min(99, int(round(yes_price_dollars * 100))))
-        no_cents = 100 - yes_cents
-        # Kalshi wants EXACTLY ONE price field based on side
+        # Clamp price between $0.01 and $0.99, rounded to 2 decimals
+        yes_price = round(max(0.01, min(0.99, price_dollars if side == "yes" else 1 - price_dollars)), 2)
+        no_price = round(1 - yes_price, 2)
+        # Kalshi wants price as DOLLAR FLOAT in field named yes_price_dollars or no_price_dollars
+        # Also requires count as integer and type='limit' with the matching price
         if side == "yes":
             payload = {
                 "ticker": ticker, "side": "yes", "type": "limit",
                 "count": int(count), "action": "buy",
-                "yes_price_dollars": yes_cents,
+                "yes_price": int(round(yes_price * 100)),  # Kalshi legacy API field — cents as int
             }
         else:
             payload = {
                 "ticker": ticker, "side": "no", "type": "limit",
                 "count": int(count), "action": "buy",
-                "no_price_dollars": no_cents,
+                "no_price": int(round(no_price * 100)),
             }
         try:
             data = await self._post("/portfolio/orders", payload)
@@ -253,25 +254,21 @@ class KalshiClient:
         except Exception as e:
             log.error(f"Order failed ({ticker} {side} x{count}): {e}")
             return None
-        except Exception as e:
-            log.error(f"Order failed ({ticker} {side}): {e}")
-            return None
 
     async def sell_position_fp(self, ticker, side, count, price_dollars):
-        yes_price_dollars = price_dollars if side == "yes" else round(1 - price_dollars, 4)
-        yes_cents = max(1, min(99, int(round(yes_price_dollars * 100))))
-        no_cents = 100 - yes_cents
+        yes_price = round(max(0.01, min(0.99, price_dollars if side == "yes" else 1 - price_dollars)), 2)
+        no_price = round(1 - yes_price, 2)
         if side == "yes":
             payload = {
                 "ticker": ticker, "side": "yes", "type": "limit",
                 "count": int(count), "action": "sell",
-                "yes_price_dollars": yes_cents,
+                "yes_price": int(round(yes_price * 100)),
             }
         else:
             payload = {
                 "ticker": ticker, "side": "no", "type": "limit",
                 "count": int(count), "action": "sell",
-                "no_price_dollars": no_cents,
+                "no_price": int(round(no_price * 100)),
             }
         try:
             data = await self._post("/portfolio/orders", payload)
