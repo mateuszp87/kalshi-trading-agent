@@ -13,8 +13,8 @@ load_dotenv()
 class AgentConfig:
     category: str = "all"
     dry_run: bool = True
-    scan_interval_min: int = 3600
-    scan_interval_max: int = 3600
+    scan_interval_min: int = 3300
+    scan_interval_max: int = 3900
     max_bet_size: float = 5.0
     max_open_positions: int = 10   # lower limit — game trades cycle fast
     buy_threshold: float = 0.72

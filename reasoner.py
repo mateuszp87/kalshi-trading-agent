@@ -179,10 +179,7 @@ Find the edge. What is the true YES probability? Is the market mispriced?"""
     def _fmt(self, signals: dict) -> str:
         if not signals:
             return "  None available — use base rates from context above."
-        
         lines = []
-        
-        # Special formatting for orderbook (volume imbalance)
         if "orderbook" in signals:
             ob = signals["orderbook"]
             imb = ob.get("imbalance", 0)
@@ -191,36 +188,31 @@ Find the edge. What is the true YES probability? Is the market mispriced?"""
             no_total = ob.get("no_dollars_total", 0)
             yes_depth = ob.get("yes_depth_3c", 0)
             no_depth = ob.get("no_depth_3c", 0)
-            
-            if imb > 0.4: bias = "STRONGLY YES-heavy (market leans YES)"
+            if imb > 0.4: bias = "STRONGLY YES-heavy"
             elif imb > 0.15: bias = "moderately YES-heavy"
-            elif imb < -0.4: bias = "STRONGLY NO-heavy (market leans NO)"
+            elif imb < -0.4: bias = "STRONGLY NO-heavy"
             elif imb < -0.15: bias = "moderately NO-heavy"
             else: bias = "balanced"
-            
-            conv_label = "high conviction" if conv > 0.5 else ("moderate" if conv > 0.3 else "low/stale")
-            
+            conv_label = "high" if conv > 0.5 else ("moderate" if conv > 0.3 else "low")
             lines.append(f"  ORDER BOOK: ${yes_total:,.0f} YES vs ${no_total:,.0f} NO ({bias})")
-            lines.append(f"  Depth within 3c of top bid: ${yes_depth:,.0f} YES | ${no_depth:,.0f} NO")
+            lines.append(f"  Depth within 3c: ${yes_depth:,.0f} YES | ${no_depth:,.0f} NO")
             lines.append(f"  Conviction: {conv:.2f} ({conv_label})")
-            lines.append(f"  → Use this as EVIDENCE but not gospel. Fade it if you have a reason.")
-        
-        # Handle all other signals — safely coerce any value shape to string
         for k, v in signals.items():
             if k == "orderbook":
                 continue
-            if isinstance(v, dict):
-                # Try common dict patterns
-                val = v.get("value") or v.get("prob") or v.get("count") or ""
-                desc = v.get("description") or v.get("agreement") or ""
-                if val or desc:
-                    lines.append(f"  [{k}] {val} | {desc}".strip(" |"))
+            try:
+                if isinstance(v, dict):
+                    val = v.get("value") or v.get("prob") or v.get("count") or ""
+                    desc = v.get("description") or v.get("agreement") or ""
+                    if val or desc:
+                        lines.append(f"  [{k}] {val} | {desc}".strip(" |"))
+                    else:
+                        lines.append(f"  [{k}] {v}")
+                elif isinstance(v, (list, tuple)):
+                    lines.append(f"  [{k}] {len(v)} items")
                 else:
                     lines.append(f"  [{k}] {v}")
-            elif isinstance(v, (list, tuple)):
-                lines.append(f"  [{k}] {len(v)} items: {str(v[:3])[:100]}")
-            else:
-                lines.append(f"  [{k}] {v}")
-        
+            except Exception:
+                lines.append(f"  [{k}] (error rendering)")
         return "\n".join(lines) if lines else "  None available."
 
