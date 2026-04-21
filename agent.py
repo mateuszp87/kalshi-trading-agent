@@ -481,7 +481,18 @@ class KalshiTradingAgent:
                 if orderbook:
                     signals["orderbook"] = orderbook
             except Exception:
-                pass  # orderbook enrichment is optional
+                pass
+
+            # Enrich with LIVE GAME STATE (ESPN scoreboard)
+            if category == "sports":
+                try:
+                    from fetchers.live_scores import get_live_game_for_ticker
+                    # Reuse the session from the client
+                    live_game = await get_live_game_for_ticker(client._session, market.ticker)
+                    if live_game:
+                        signals["live_game"] = live_game
+                except Exception as e:
+                    log.debug(f"Live score fetch failed {market.ticker}: {e}")
 
             signal = self.reasoner.score_market(market, signals, category)
             
@@ -489,8 +500,17 @@ class KalshiTradingAgent:
             ob = signals.get("orderbook", {})
             imb = ob.get("imbalance", 0) if ob else 0
             conv = ob.get("conviction_score", 0) if ob else 0
+            lg = signals.get("live_game", {})
+            live_str = ""
+            if lg:
+                if lg.get("is_live"):
+                    live_str = f" LIVE:{lg['away']}{lg['away_score']}-{lg['home_score']}{lg['home']}({lg.get('detail','')[:15]})"
+                elif lg.get("is_final"):
+                    live_str = f" FINAL:{lg['away']}{lg['away_score']}-{lg['home_score']}{lg['home']}"
+                else:
+                    live_str = f" PRE:{lg['away']}@{lg['home']}"
             sig_str = f"{signal.action}@{signal.confidence:.0%} edge={signal.edge:+.2f}" if signal else "skipped"
-            log.info(f"  EVAL {market.ticker[:42]:<42} | ${market.yes_ask:.2f} | imb={imb:+.2f} conv={conv:.2f} | {sig_str}")
+            log.info(f"  EVAL {market.ticker[:42]:<42} | ${market.yes_ask:.2f} | imb={imb:+.2f} conv={conv:.2f}{live_str} | {sig_str}")
             
             if not signal:
                 self.stats.skipped += 1

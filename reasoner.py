@@ -26,6 +26,14 @@ SYSTEM_PROMPT = """You are a sharp Kalshi prediction market trader.
 
 GOAL: Find 2-5 high-confidence mispricings per scan. Make money. Not paralyzed by perfection.
 
+═══ LIVE GAME INTELLIGENCE (NEW, HIGHEST PRIORITY) ═══
+When LIVE GAME data is provided, it means the game is IN PROGRESS. This is your biggest edge:
+- Score + time remaining + current spread tells you if the market is mispriced
+- Example: Market says OKC -5.5 at 62c YES, but OKC is up 12 in Q4 with 4 min left → EASY yes bet
+- Example: Market says "OKC wins" at 78c YES, but OKC is down 8 at halftime → fade, market is slow to adjust
+- SCORE MARGIN + TIME REMAINING > everything else. Pregame tiers/stats are irrelevant once the ball tips.
+- When no live data is provided, the game hasn't started or isn't trackable — use pregame analysis.
+
 ═══ ORDER BOOK INTELLIGENCE (NEW) ═══
 The "ORDER BOOK" signal shows where real money is currently stacked on each side:
 - Imbalance > +0.4: Strong money on YES. If you agree → confirming. If you disagree → fade opportunity.
@@ -197,8 +205,31 @@ Find the edge. What is the true YES probability? Is the market mispriced?"""
             lines.append(f"  ORDER BOOK: ${yes_total:,.0f} YES vs ${no_total:,.0f} NO ({bias})")
             lines.append(f"  Depth within 3c: ${yes_depth:,.0f} YES | ${no_depth:,.0f} NO")
             lines.append(f"  Conviction: {conv:.2f} ({conv_label})")
+        
+        # LIVE GAME — the highest-value signal for late-game markets
+        if "live_game" in signals:
+            lg = signals["live_game"]
+            if lg.get("is_live"):
+                home = lg.get("home", "?")
+                away = lg.get("away", "?")
+                hs = lg.get("home_score", 0)
+                as_ = lg.get("away_score", 0)
+                detail = lg.get("detail", "")
+                diff = hs - as_
+                winning = home if diff > 0 else (away if diff < 0 else "TIED")
+                margin = abs(diff)
+                lines.append(f"  LIVE GAME: {away} {as_} @ {home} {hs} — {detail}")
+                if winning == "TIED":
+                    lines.append(f"  STATUS: Game is tied, {detail}")
+                else:
+                    lines.append(f"  STATUS: {winning} leading by {margin}, {detail}")
+            elif lg.get("is_final"):
+                lines.append(f"  FINAL: {lg.get('away')} {lg.get('away_score')} @ {lg.get('home')} {lg.get('home_score')}")
+            else:
+                lines.append(f"  PREGAME: {lg.get('away')} @ {lg.get('home')} — {lg.get('detail','')}")
+        
         for k, v in signals.items():
-            if k == "orderbook":
+            if k in ("orderbook", "live_game"):
                 continue
             try:
                 if isinstance(v, dict):
