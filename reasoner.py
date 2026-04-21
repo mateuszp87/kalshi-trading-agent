@@ -160,7 +160,12 @@ Find the edge. What is the true YES probability? Is the market mispriced?"""
                 factor_scores=data.get("factor_scores", {}),
             )
         except Exception as e:
-            log.error(f"Claude failed {market.ticker}: {e}")
+            # Empty response / JSON parse errors are common for low-data markets.
+            # Downgrade to debug level to keep logs clean.
+            if "Expecting value" in str(e) or "line 1 column 1" in str(e):
+                log.debug(f"Claude returned empty for {market.ticker}")
+            else:
+                log.warning(f"Claude failed {market.ticker}: {e}")
             return None
 
     def _fmt(self, signals: dict) -> str:

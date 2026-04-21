@@ -500,13 +500,15 @@ async def _fetch_ensemble_forecast(session, location: str, weather_type: str) ->
                 return {"prob": 0.1, "agreement": "low (fallback)"}
             data = await resp.json()
             hourly = data.get("hourly", {})
-            precip = hourly.get("precipitation", [0] * 168)
-            wind = hourly.get("wind_speed_10m", [0] * 168)
-            # Fraction of hours with notable weather
-            severe_hours = sum(1 for p, w in zip(precip, wind) if p > 0.1 or w > 35)
-            prob = min(severe_hours / len(precip), 0.9)
+            precip = hourly.get("precipitation") or []
+            wind = hourly.get("wind_speed_10m") or []
+            # Filter out None values (API sometimes returns sparse data)
+            pairs = [(p, w) for p, w in zip(precip, wind) if p is not None and w is not None]
+            if not pairs:
+                return {}
+            severe_hours = sum(1 for p, w in pairs if p > 0.1 or w > 35)
+            prob = min(severe_hours / len(pairs), 0.9)
             agreement = "high" if prob > 0.6 or prob < 0.2 else "moderate"
             return {"prob": round(prob, 3), "agreement": agreement}
-    except Exception as e:
-        log.warning(f"Ensemble forecast failed: {e}")
+    except Exception:
         return {}
