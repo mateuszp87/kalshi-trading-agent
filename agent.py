@@ -434,7 +434,7 @@ class KalshiTradingAgent:
                 continue
             # HARD CUTOFF: only bet on markets closing within 36 hours (today + tomorrow)
             # Rejects future playoff/championship markets dated days or weeks out
-            if h is None or h > 36:
+            if h is None or h > 72:  # 3-day max
                 continue
             # Max 3 positions per game event
             event = event_root(t)
@@ -475,7 +475,23 @@ class KalshiTradingAgent:
                 log.warning(f"  Signals error {market.ticker}: {e}")
                 signals = {}
 
+            # Enrich signals with orderbook intelligence (volume imbalance)
+            try:
+                orderbook = await client.get_orderbook(market.ticker)
+                if orderbook:
+                    signals["orderbook"] = orderbook
+            except Exception:
+                pass  # orderbook enrichment is optional
+
             signal = self.reasoner.score_market(market, signals, category)
+            
+            # Log every evaluation so we see what's being considered
+            ob = signals.get("orderbook", {})
+            imb = ob.get("imbalance", 0) if ob else 0
+            conv = ob.get("conviction_score", 0) if ob else 0
+            sig_str = f"{signal.action}@{signal.confidence:.0%} edge={signal.edge:+.2f}" if signal else "skipped"
+            log.info(f"  EVAL {market.ticker[:42]:<42} | ${market.yes_ask:.2f} | imb={imb:+.2f} conv={conv:.2f} | {sig_str}")
+            
             if not signal:
                 self.stats.skipped += 1
                 continue

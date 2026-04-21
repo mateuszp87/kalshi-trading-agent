@@ -26,6 +26,14 @@ SYSTEM_PROMPT = """You are a sharp Kalshi prediction market trader.
 
 GOAL: Find 2-5 high-confidence mispricings per scan. Make money. Not paralyzed by perfection.
 
+═══ ORDER BOOK INTELLIGENCE (NEW) ═══
+The "ORDER BOOK" signal shows where real money is currently stacked on each side:
+- Imbalance > +0.4: Strong money on YES. If you agree → confirming. If you disagree → fade opportunity.
+- Imbalance < -0.4: Strong money on NO. Same logic.
+- Conviction < 0.3: Stale book, discount the signal (maybe off-hours or low-interest market)
+- Conviction > 0.5: Active book, take the signal seriously
+- Top of book prices show the true market mid. Use this as a sanity check vs the bid/ask we show.
+
 ═══ HOW TO READ SIGNALS ═══
 Signals provided may be partially irrelevant (e.g., NBA injury data for MMA fights). IGNORE mismatched signals and focus on:
 - Market price (the anchor)
@@ -170,7 +178,35 @@ Find the edge. What is the true YES probability? Is the market mispriced?"""
 
     def _fmt(self, signals: dict) -> str:
         if not signals: return "  None available — use base rates from context above."
-        return "\n".join(
+        
+        # Special formatting for orderbook (volume imbalance)
+        lines = []
+        if "orderbook" in signals:
+            ob = signals["orderbook"]
+            imb = ob.get("imbalance", 0)
+            conv = ob.get("conviction_score", 0)
+            yes_total = ob.get("yes_dollars_total", 0)
+            no_total = ob.get("no_dollars_total", 0)
+            yes_depth = ob.get("yes_depth_3c", 0)
+            no_depth = ob.get("no_depth_3c", 0)
+            
+            # Interpret the imbalance
+            if imb > 0.4: bias = "STRONGLY YES-heavy (market leans YES)"
+            elif imb > 0.15: bias = "moderately YES-heavy"
+            elif imb < -0.4: bias = "STRONGLY NO-heavy (market leans NO)"
+            elif imb < -0.15: bias = "moderately NO-heavy"
+            else: bias = "balanced"
+            
+            conv_label = "high conviction" if conv > 0.5 else ("moderate" if conv > 0.3 else "low/stale")
+            
+            lines.append(f"  ORDER BOOK: ${yes_total:,.0f} YES vs ${no_total:,.0f} NO ({bias})")
+            lines.append(f"  Depth within 3c of top bid: ${yes_depth:,.0f} YES | ${no_depth:,.0f} NO")
+            lines.append(f"  Conviction: {conv:.2f} ({conv_label})")
+            lines.append(f"  → Use this as EVIDENCE but not gospel. Fade it if you have a reason (injury, matchup, stale book).")
+        
+        # Append other signals normally
+        other = {k: v for k, v in signals.items() if k != "orderbook"}
+        lines.extend(
             f"  [{k}] {v.get('value','?')} | {v.get('description','')}"
             + (f"\n    {str(v.get('raw',''))[:200]}" if v.get('raw') else "")
             for k, v in signals.items()

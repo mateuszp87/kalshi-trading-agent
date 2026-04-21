@@ -202,6 +202,79 @@ class KalshiClient:
             log.warning(f"get_market {ticker}: {e}")
             return {}
 
+
+    async def get_orderbook(self, ticker: str) -> dict:
+        """Fetch orderbook and compute imbalance signal for a market.
+        Returns dict with:
+          - yes_dollars_total: $ stacked on YES bids (buying pressure for YES)
+          - no_dollars_total: $ stacked on NO bids (buying pressure for NO)
+          - imbalance: -1 to +1 (positive = YES-heavy, negative = NO-heavy)
+          - top_yes_bid: best YES bid price
+          - top_no_bid: best NO bid price
+          - yes_bid_depth_3c: $ available within 3c of top YES bid (liquidity)
+          - no_bid_depth_3c: $ available within 3c of top NO bid
+          - conviction_score: 0-1, weighted by proximity to mid price
+        """
+        try:
+            data = await self._get(f"/markets/{ticker}/orderbook")
+            ob = data.get("orderbook_fp", data.get("orderbook", {}))
+            yes_book = ob.get("yes_dollars") or ob.get("yes") or []
+            no_book = ob.get("no_dollars") or ob.get("no") or []
+            if not yes_book and not no_book:
+                return {}
+
+            def parse_side(book):
+                # Kalshi returns sorted by price asc. Top bid = highest price.
+                # Each entry: [price_str_dollars, count_str]
+                parsed = []
+                for entry in book:
+                    try:
+                        p = float(entry[0])
+                        c = float(entry[1])
+                        if p > 0 and c > 0:
+                            parsed.append((p, c))
+                    except (ValueError, IndexError, TypeError):
+                        continue
+                return parsed
+
+            yes_parsed = parse_side(yes_book)
+            no_parsed = parse_side(no_book)
+
+            # Top-of-book prices (highest bid on each side)
+            top_yes = max((p for p, _ in yes_parsed), default=0)
+            top_no = max((p for p, _ in no_parsed), default=0)
+
+            # Total dollar volume on each side (count * price, the actual $ at risk)
+            yes_dollars = round(sum(p * c for p, c in yes_parsed), 2)
+            no_dollars = round(sum(p * c for p, c in no_parsed), 2)
+
+            # Liquidity within 3c of top bid
+            yes_depth_3c = round(sum(p * c for p, c in yes_parsed if p >= top_yes - 0.03), 2)
+            no_depth_3c = round(sum(p * c for p, c in no_parsed if p >= top_no - 0.03), 2)
+
+            # Imbalance: -1 (all NO) to +1 (all YES)
+            total = yes_dollars + no_dollars
+            imbalance = round((yes_dollars - no_dollars) / total, 3) if total > 0 else 0
+
+            # Conviction: favor money stacked near the action (within 10c of top)
+            yes_near = sum(p * c for p, c in yes_parsed if p >= top_yes - 0.10)
+            no_near = sum(p * c for p, c in no_parsed if p >= top_no - 0.10)
+            total_near = yes_near + no_near
+            conviction = round(total_near / total, 3) if total > 0 else 0
+
+            return {
+                "yes_dollars_total": yes_dollars,
+                "no_dollars_total": no_dollars,
+                "imbalance": imbalance,
+                "top_yes_bid": round(top_yes, 4),
+                "top_no_bid": round(top_no, 4),
+                "yes_depth_3c": yes_depth_3c,
+                "no_depth_3c": no_depth_3c,
+                "conviction_score": conviction,
+            }
+        except Exception as e:
+            return {}
+
     async def get_balance(self) -> float:
         try:
             data = await self._get("/portfolio/balance")
