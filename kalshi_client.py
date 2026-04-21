@@ -146,7 +146,9 @@ class KalshiClient:
     async def _post(self, path, payload):
         url = f"{self.base_url}{path}"
         async with self._session.post(url, headers=self._make_headers("POST", path), json=payload) as r:
-            r.raise_for_status()
+            if r.status >= 400:
+                err_body = await r.text()
+                raise Exception(f"{r.status} {r.reason} | body={err_body[:400]} | sent={payload}")
             return await r.json()
 
     def _parse_market(self, m: dict, category: str = "") -> KalshiMarket:
@@ -247,7 +249,7 @@ class KalshiClient:
             o = data.get("order", {})
             return OrderResult(
                 order_id=o.get("id", ""), ticker=ticker, side=side,
-                price=yes_price_dollars, count=count,
+                price=yes_price, count=count,
                 status=o.get("status", "unknown"),
                 filled=int(o.get("filled_count", 0)),
             )
@@ -275,7 +277,7 @@ class KalshiClient:
             o = data.get("order", {})
             return OrderResult(
                 order_id=o.get("id", ""), ticker=ticker, side=side,
-                price=yes_price_dollars, count=count,
+                price=yes_price, count=count,
                 status=o.get("status", "unknown"),
                 filled=int(o.get("filled_count", 0)),
             )
