@@ -432,6 +432,10 @@ class KalshiTradingAgent:
                 continue
             if h is not None and h < 0.5:
                 continue
+            # HARD CUTOFF: only bet on markets closing within 36 hours (today + tomorrow)
+            # Rejects future playoff/championship markets dated days or weeks out
+            if h is None or h > 36:
+                continue
             # Max 3 positions per game event
             event = event_root(t)
             if sum(1 for tk in self.stats.positions if event_root(tk) == event) >= 3:
