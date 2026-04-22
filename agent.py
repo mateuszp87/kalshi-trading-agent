@@ -242,28 +242,62 @@ class KalshiTradingAgent:
 
     async def _sync_positions(self, client):
         """Load real open positions from Kalshi on startup."""
+        await self._sync_positions_from_kalshi(client)
+
+    async def _sync_positions_from_kalshi(self, client):
+        """Pull fresh positions from Kalshi and OVERWRITE internal state.
+        Called at startup AND at the start of every scan cycle to prevent drift.
+        Preserves existing Position metadata (title/category/timeframe) when the
+        ticker is already known; otherwise creates a synced placeholder."""
         try:
             real = await client.get_positions()
+            fresh_positions = {}
+            
             for p in real:
                 ticker = p.get("market_ticker", p.get("ticker", ""))
-                yes_ct = int(float(p.get("position_fp", 0) or 0))
-                no_ct  = int(float(p.get("position_fp", 0) or 0))
-                if not ticker or (yes_ct == 0 and no_ct == 0): continue
-                side  = "yes" if yes_ct > 0 else "no"
-                count = yes_ct if yes_ct > 0 else no_ct
-                mkt   = await client.get_market(ticker)
-                bid   = mkt.get("yes_bid", 0)
-                ask   = mkt.get("yes_ask", 0)
-                mid   = round((bid + ask) / 2, 4) if bid and ask else 0.5
-                entry = mid if side == "yes" else round(1 - mid, 4)
-                self.stats.positions[ticker] = Position(
-                    ticker=ticker, title=ticker, side=side,
-                    entry_price=entry, contracts=count,
-                    cost=round(entry * count, 2),
-                    entry_time=datetime.now(timezone.utc).isoformat(),
-                    category="synced", timeframe="synced", is_game=False,
-                )
-            log.info(f"Synced {len(self.stats.positions)} real positions from Kalshi")
+                pos_fp = float(p.get("position_fp", 0) or 0)
+                if not ticker or pos_fp == 0:
+                    continue
+                
+                # Correctly determine side and count from signed position_fp
+                side = "yes" if pos_fp > 0 else "no"
+                count = int(abs(pos_fp))
+                
+                # Preserve existing metadata if we already know this ticker
+                existing = self.stats.positions.get(ticker)
+                if existing:
+                    # Update contracts but keep original entry_price/title/category
+                    existing.contracts = count
+                    existing.side = side
+                    fresh_positions[ticker] = existing
+                else:
+                    # New ticker (e.g. placed outside the agent) — create placeholder
+                    try:
+                        mkt = await client.get_market(ticker)
+                        bid = mkt.get("yes_bid", 0)
+                        ask = mkt.get("yes_ask", 0)
+                        mid = round((bid + ask) / 2, 4) if bid and ask else 0.5
+                    except Exception:
+                        mid = 0.5
+                    entry = mid if side == "yes" else round(1 - mid, 4)
+                    fresh_positions[ticker] = Position(
+                        ticker=ticker, title=ticker, side=side,
+                        entry_price=entry, contracts=count,
+                        cost=round(entry * count, 2),
+                        entry_time=datetime.now(timezone.utc).isoformat(),
+                        category="synced", timeframe="synced", is_game=False,
+                    )
+            
+            removed = set(self.stats.positions.keys()) - set(fresh_positions.keys())
+            added = set(fresh_positions.keys()) - set(self.stats.positions.keys())
+            
+            self.stats.positions = fresh_positions
+            
+            if removed or added:
+                log.info(f"  Position sync: {len(fresh_positions)} open "
+                         f"(+{len(added)} new, -{len(removed)} closed)")
+            else:
+                log.info(f"  Position sync: {len(fresh_positions)} open (no changes)")
         except Exception as e:
             log.warning(f"Position sync failed: {e}")
 
@@ -386,9 +420,12 @@ class KalshiTradingAgent:
             if ticker in self.stats.positions: del self.stats.positions[ticker]
 
     async def _scan(self, client):
+        # CRITICAL: re-sync positions from Kalshi every scan to prevent stale count drift
+        await self._sync_positions_from_kalshi(client)
+        
         slots = self.config.max_open_positions - self.stats.count
         if slots <= 0:
-            log.info("  No slots — exits only")
+            log.info(f"  No slots — {self.stats.count}/{self.config.max_open_positions} positions held")
             return
 
         log.info("")
