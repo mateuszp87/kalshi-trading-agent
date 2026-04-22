@@ -138,20 +138,31 @@ def is_game(title: str) -> bool:
 
 
 def edge_threshold(m: KalshiMarket) -> float:
-    """VERY strict — only place bets with overwhelming edge and high confidence."""
+    """Loosened to find more opportunities. Still requires real edge."""
     spread = (m.yes_ask - m.yes_bid) if m.yes_bid and m.yes_ask else 0.5
     vol    = m.volume or 0
     mid    = m.mid_price
-
-    # Heavy favorite/underdog: respect the market, need overwhelming edge
-    if mid >= 0.75 or mid <= 0.25:
-        return 0.20  # 20 cent edge required
-
-    # Mid-range liquid markets: require sharp mispricing
-    if spread <= 0.02 and vol > 100000: return 0.02   # was 0.08
-    if spread <= 0.05 and vol > 10000:  return 0.15   # was 0.10
-    if spread <= 0.10 and vol > 1000:   return 0.18   # was 0.13
-    return 0.25  # illiquid markets need massive edge
+    is_spread_market = "SPREAD" in m.ticker.upper()
+    
+    # Base threshold by price range
+    if mid >= 0.90 or mid <= 0.10:
+        base = 0.08   # cheap / expensive markets — was 0.20
+    elif mid >= 0.75 or mid <= 0.25:
+        base = 0.06   # favorite / underdog — was 0.20
+    elif spread <= 0.02 and vol > 100000:
+        base = 0.02   # thick liquid books — unchanged
+    elif spread <= 0.05 and vol > 10000:
+        base = 0.05   # good liquidity — was 0.15
+    elif spread <= 0.10 and vol > 1000:
+        base = 0.07   # moderate — was 0.18
+    else:
+        base = 0.12   # illiquid — was 0.25
+    
+    # SPREAD markets historically best — 2c discount
+    if is_spread_market:
+        base = max(0.02, base - 0.02)
+    
+    return base
 
 
 @dataclass
@@ -482,7 +493,7 @@ class KalshiTradingAgent:
         log.info(f"  {len(candidates)} passed hard filters — evaluating with Claude...")
 
         # ═══ PHASE 2: Claude evaluation — collect all BUY recommendations ═══
-        MIN_CONFIDENCE = 0.68
+        MIN_CONFIDENCE = 0.63  # loosened from 0.68
         opportunities = []
 
         for market in candidates:
