@@ -137,6 +137,36 @@ def is_game(title: str) -> bool:
     return any(w in t for w in game) and not any(w in t for w in season)
 
 
+def hours_until_game_from_ticker(ticker: str) -> float:
+    """Parse game date from Kalshi ticker like KXMLBGAME-26APR26...
+    Returns hours until the game date's start-of-day UTC, or None if unparseable.
+    This is used INSTEAD of close_time for sports because Kalshi keeps sports
+    markets open for days after the game (settlement buffer)."""
+    import re
+    from datetime import datetime, timezone
+    
+    m = re.match(r"KX[A-Z]+-?(\d{2})([A-Z]{3})(\d{2})", ticker)
+    if not m:
+        return None
+    
+    try:
+        yy = int(m.group(1)) + 2000
+        mon_str = m.group(2)
+        dd = int(m.group(3))
+        months = {"JAN":1,"FEB":2,"MAR":3,"APR":4,"MAY":5,"JUN":6,
+                  "JUL":7,"AUG":8,"SEP":9,"OCT":10,"NOV":11,"DEC":12}
+        mon = months.get(mon_str)
+        if not mon:
+            return None
+        game_start = datetime(yy, mon, dd, 0, 0, 0, tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        return (game_start - now).total_seconds() / 3600
+    except Exception:
+        return None
+
+
+
+
 def edge_threshold(m: KalshiMarket) -> float:
     """Loosened to find more opportunities. Still requires real edge."""
     spread = (m.yes_ask - m.yes_bid) if m.yes_bid and m.yes_ask else 0.5
@@ -482,8 +512,20 @@ class KalshiTradingAgent:
                 continue
             # HARD CUTOFF: only bet on markets closing within 36 hours (today + tomorrow)
             # Rejects future playoff/championship markets dated days or weeks out
-            if h is None or h > 72:  # 3-day max
-                continue
+            # For sports tickers, Kalshi's close_time is days AFTER the game
+            # (settlement buffer). Use the ticker's game date instead.
+            is_sports = any(x in t.upper() for x in [
+                "KXNBA","KXNHL","KXMLB","KXNFL","KXWNBA","KXCFB","KXCBB",
+                "KXUCL","KXUEL","KXEPL","KXLALIGA","KXSERIEA","KXBUNDESLIGA",
+                "KXLIGUE1","KXMLS","KXATP","KXWTA","KXPGA","KXUFC","KXBOXING"
+            ])
+            if is_sports:
+                game_h = hours_until_game_from_ticker(t)
+                if game_h is None or game_h > 72 or game_h < -6:  # -6 allows in-progress games
+                    continue
+            else:
+                if h is None or h > 72:
+                    continue
             # Max 3 positions per game event
             event = event_root(t)
             if sum(1 for tk in self.stats.positions if event_root(tk) == event) >= 3:
