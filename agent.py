@@ -526,9 +526,12 @@ class KalshiTradingAgent:
             else:
                 if h is None or h > 72:
                     continue
-            # Max 3 positions per game event
+            # STRICT: max 1 position per event (no correlated duplicate bets)
             event = event_root(t)
-            if sum(1 for tk in self.stats.positions if event_root(tk) == event) >= 3:
+            if any(event_root(tk) == event for tk in self.stats.positions):
+                continue
+            # STRICT: never re-bet exact same ticker while holding it
+            if t in self.stats.positions:
                 continue
             candidates.append(market)
 
@@ -682,6 +685,12 @@ class KalshiTradingAgent:
             if not result: log.error("  Order failed"); return
             log.info(f"  ✓ BUY {side.upper()} {market.ticker} | {count}x@{price:.0%} | ${cost:.2f} | id={result.order_id}")
 
+        # DEFENSE IN DEPTH: even if candidates slipped through, block duplicate event/ticker at placement
+        _event = event_root(market.ticker)
+        _already_on_event = any(event_root(tk) == _event for tk in self.stats.positions)
+        if _already_on_event or market.ticker in self.stats.positions:
+            log.info(f"  ⊘ SKIP placement {market.ticker} — already hold position on this event/ticker")
+            continue
         self.stats.positions[market.ticker] = Position(
             ticker=market.ticker, title=market.title[:80], side=side,
             entry_price=price, contracts=count, cost=cost,
