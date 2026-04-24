@@ -658,6 +658,14 @@ class KalshiTradingAgent:
 
     async def _place(self, client, market: KalshiMarket, side: str,
                      signal: TradeSignal, category: str):
+        # DEFENSE IN DEPTH: block duplicate event/ticker BEFORE placing any order
+        _event = event_root(market.ticker)
+        if any(event_root(tk) == _event for tk in self.stats.positions):
+            log.info(f"  ⊘ SKIP {market.ticker} — already hold position on this event")
+            return
+        if market.ticker in self.stats.positions:
+            log.info(f"  ⊘ SKIP {market.ticker} — already hold this ticker")
+            return
         c = signal.confidence
         edge = abs(signal.edge)
         # Combine confidence + edge for sizing
@@ -685,12 +693,6 @@ class KalshiTradingAgent:
             if not result: log.error("  Order failed"); return
             log.info(f"  ✓ BUY {side.upper()} {market.ticker} | {count}x@{price:.0%} | ${cost:.2f} | id={result.order_id}")
 
-        # DEFENSE IN DEPTH: even if candidates slipped through, block duplicate event/ticker at placement
-        _event = event_root(market.ticker)
-        _already_on_event = any(event_root(tk) == _event for tk in self.stats.positions)
-        if _already_on_event or market.ticker in self.stats.positions:
-            log.info(f"  ⊘ SKIP placement {market.ticker} — already hold position on this event/ticker")
-            continue
         self.stats.positions[market.ticker] = Position(
             ticker=market.ticker, title=market.title[:80], side=side,
             entry_price=price, contracts=count, cost=cost,
