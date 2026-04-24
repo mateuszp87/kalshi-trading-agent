@@ -521,7 +521,7 @@ class KalshiTradingAgent:
             ])
             if is_sports:
                 game_h = hours_until_game_from_ticker(t)
-                if game_h is None or game_h > 72 or game_h < -6:  # -6 allows in-progress games
+                if game_h is None or game_h > 72 or game_h < -18:  # allow in-progress + late-night games  # -6 allows in-progress games
                     continue
             else:
                 if h is None or h > 72:
