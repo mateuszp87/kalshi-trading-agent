@@ -277,7 +277,7 @@ class KalshiTradingAgent:
                 if self.stats.realized_pnl_dollars <= -self.config.max_daily_loss:
                     log.warning("Daily loss limit — stopping."); break
 
-                wait = random.randint(self.config.scan_interval_min, self.config.scan_interval_max)
+                wait = random.randint(7200, 10800)  # HARDCODED 2-3 hours
                 log.info(f"Next scan {wait//60}m {wait%60}s | positions {self.stats.count}/{100}")
                 await asyncio.sleep(wait)
 
