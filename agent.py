@@ -278,7 +278,7 @@ class KalshiTradingAgent:
                     log.warning("Daily loss limit — stopping."); break
 
                 wait = random.randint(self.config.scan_interval_min, self.config.scan_interval_max)
-                log.info(f"Next scan {wait//60}m {wait%60}s | positions {self.stats.count}/{100  # HARDCODED: was self.config.max_open_positions}")
+                log.info(f"Next scan {wait//60}m {wait%60}s | positions {self.stats.count}/{100}")
                 await asyncio.sleep(wait)
 
     async def _sync_positions(self, client):
@@ -384,7 +384,7 @@ class KalshiTradingAgent:
         """Check every position_fp — take profit, stop loss, or evict worst to free slot."""
         if not self.stats.positions: return
         tickers = list(self.stats.positions.keys())
-        log.info(f"\n[EXIT CHECK] {len(tickers)} positions | {100  # HARDCODED: was self.config.max_open_positions - self.stats.count} slots free")
+        log.info(f"\n[EXIT CHECK] {len(tickers)} positions | {100 - self.stats.count} slots free")
 
         statuses = []
         for ticker in tickers:
@@ -419,7 +419,7 @@ class KalshiTradingAgent:
             if reason: to_exit.append((ps, reason))
 
         # If at limit, evict the worst-performing non-game position_fp to free a slot
-        if self.stats.count >= 100  # HARDCODED: was self.config.max_open_positions:
+        if self.stats.count >= 100:
             already_exiting = {e[0]["ticker"] for e in to_exit}
             candidates = sorted(
                 [ps for ps in statuses
@@ -464,9 +464,9 @@ class KalshiTradingAgent:
         # CRITICAL: re-sync positions from Kalshi every scan to prevent stale count drift
         await self._sync_positions_from_kalshi(client)
         
-        slots = 100  # HARDCODED: was self.config.max_open_positions - self.stats.count
+        slots = 100 - self.stats.count
         if slots <= 0:
-            log.info(f"  No slots — {self.stats.count}/{100  # HARDCODED: was self.config.max_open_positions} positions held")
+            log.info(f"  No slots — {self.stats.count}/{100} positions held")
             return
 
         log.info("")
@@ -644,7 +644,7 @@ class KalshiTradingAgent:
         # ═══ PHASE 4: Place trades ═══
         placed = 0
         for opp in opportunities:
-            if self.stats.count >= 100  # HARDCODED: was self.config.max_open_positions:
+            if self.stats.count >= 100:
                 log.info("  Max positions reached — stopping")
                 break
             await self._place(client, opp["market"], opp["side"], opp["signal"], opp["category"])
@@ -716,7 +716,7 @@ class KalshiTradingAgent:
         games = sum(1 for p in s.positions.values() if p.is_game)
         log.info(f"\n── Stats ───────────────────────────────────────────")
         log.info(f"  Scanned {s.scanned} | Placed {s.placed} | Exited {s.exited} | Skipped {s.skipped}")
-        log.info(f"  Positions {s.count}/{100  # HARDCODED: was self.config.max_open_positions} ({games} games, {s.count-games} other)")
+        log.info(f"  Positions {s.count}/{100} ({games} games, {s.count-games} other)")
         log.info(f"  Session P&L ${s.realized_pnl_dollars:+.2f} | All-time ${self._pnl.get('all_time_pnl',0):+.2f}")
         log.info(f"  Win rate {s.win_rate:.0%} ({s.wins}W/{s.losses}L)")
         log.info(f"────────────────────────────────────────────────────\n")
