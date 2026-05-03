@@ -678,6 +678,16 @@ class KalshiTradingAgent:
 
         bet   = round(40.0 * frac, 2)  # HARDCODED: was self.config.max_bet_size
         price = (market.yes_ask if side == "yes" else market.no_ask)
+        
+        # WEATHER DISCIPLINE: only high-probability outcomes, cap at $10
+        # Block "10x longshots" — anything priced ≤ 15c on weather is too speculative
+        if category == "weather":
+            _check_price = market.yes_ask if side == "yes" else market.no_ask
+            if _check_price <= 0.15:
+                log.info(f"  ⊘ WEATHER LONGSHOT BLOCKED {market.ticker} @ ${_check_price:.2f} (need >15c for weather)")
+                return
+            bet = min(bet, 10.0)
+            log.info(f"  Weather discipline: bet capped at ${bet:.2f}")
         if price <= 0: price = market.mid_price if side == "yes" else round(1 - market.mid_price, 4)
         if price <= 0: log.warning("  No valid price"); return
 
