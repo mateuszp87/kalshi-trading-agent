@@ -676,7 +676,41 @@ class KalshiTradingAgent:
         elif c >= 0.75:                 frac, tier = 0.55, "GOOD"
         else:                           frac, tier = 0.40, "MODERATE"
 
+        # ═══ WEATHER ENSEMBLE OVERRIDE ═══
+        # For weather, ignore Claude's signal and use multi-source forecast ensemble
+        weather_cap = None
+        if category == "weather":
+            from fetchers.weather_ensemble import get_ensemble_forecast
+            try:
+                ens = await get_ensemble_forecast(market.ticker)
+            except Exception as e:
+                log.warning(f"  Weather ensemble failed for {market.ticker}: {e}")
+                return
+            
+            if not ens:
+                log.info(f"  ⊘ WEATHER UNPARSEABLE {market.ticker}")
+                return
+            
+            rec = ens["recommendation"]
+            if rec == "SKIP":
+                log.info(f"  ⊘ WEATHER SKIP {market.ticker} — {ens['reason']}")
+                return
+            
+            # Override side based on ensemble (ignore Claude's opinion)
+            ensemble_side = "yes" if rec == "BUY_YES" else "no"
+            if ensemble_side != side:
+                log.info(f"  ↻ WEATHER SIDE FLIP {market.ticker}: Claude said {side.upper()}, ensemble says {ensemble_side.upper()}")
+                side = ensemble_side
+            
+            # Cap weather bets: $10 HIGH confidence, $5 MEDIUM
+            weather_cap = 10.0 if ens["confidence"] == "HIGH" else 5.0
+            log.info(f"  🌡 WEATHER ENSEMBLE: {market.ticker} → {rec} ({ens['confidence']})")
+            log.info(f"     Sources: {ens['source_results']}")
+            log.info(f"     {ens['reason']}  cap=${weather_cap:.0f}")
+        
         bet   = round(40.0 * frac, 2)  # HARDCODED: was self.config.max_bet_size
+        if weather_cap is not None:
+            bet = min(bet, weather_cap)
         price = (market.yes_ask if side == "yes" else market.no_ask)
         
         # WEATHER DISCIPLINE: only high-probability outcomes, cap at $10
