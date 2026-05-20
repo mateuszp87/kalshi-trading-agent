@@ -32,7 +32,7 @@ class AgentConfig:
     coingecko_api_key: str = field(default_factory=lambda: os.getenv("COINGECKO_API_KEY", ""))
     noaa_token: str = field(default_factory=lambda: os.getenv("NOAA_TOKEN", ""))
 
-    claude_model: str = "claude-sonnet-4-20250514"
+    claude_model: str = "claude-sonnet-4-6"  # Migrated from claude-sonnet-4-20250514 (deprecated June 15, 2026)
 
     def validate(self):
         errors = []
