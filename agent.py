@@ -476,7 +476,7 @@ class KalshiTradingAgent:
 
         log.info("")
         log.info("[SPORTS] Fetching best markets...")
-        sports_mkts = await client.get_series_markets(PRIORITY_SERIES, limit=15)
+        sports_mkts = await client.get_series_markets(PRIORITY_SERIES, limit=30)  # Doubled from 15 — more candidates without loosening filters
 
         tradeable = [
             m for m in sports_mkts

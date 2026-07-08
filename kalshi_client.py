@@ -300,28 +300,33 @@ class KalshiClient:
             return []
 
     async def place_order(self, ticker, side, price_dollars, count):
-        # Clamp price between $0.01 and $0.99, rounded to 2 decimals
-        yes_price = round(max(0.01, min(0.99, price_dollars if side == "yes" else 1 - price_dollars)), 2)
-        no_price = round(1 - yes_price, 2)
-        # Kalshi wants price as DOLLAR FLOAT in field named yes_price_dollars or no_price_dollars
-        # Also requires count as integer and type='limit' with the matching price
-        if side == "yes":
-            payload = {
-                "ticker": ticker, "side": "yes", "type": "limit",
-                "count": int(count), "action": "buy",
-                "yes_price": int(round(yes_price * 100)),  # Kalshi legacy API field — cents as int
-            }
-        else:
-            payload = {
-                "ticker": ticker, "side": "no", "type": "limit",
-                "count": int(count), "action": "buy",
-                "no_price": int(round(no_price * 100)),
-            }
+        """V2 endpoint (migrated 2026-07-08).
+        V2 quotes only from YES side: side='bid' = buy YES, side='ask' = sell YES (= buy NO).
+        Price is decimal string, count is decimal string, needs client_order_id + self_trade_prevention_type.
+        """
+        import uuid
+        # Clamp yes-side price between $0.01 and $0.99
+        yes_price = round(max(0.01, min(0.99, price_dollars if side == "yes" else 1 - price_dollars)), 4)
+        # V2 side mapping: yes buy → bid, no buy → ask (sells YES at 1-no_price = yes_price economic equivalent)
+        # BUT V2 always quotes YES side, so no-buy price = yes-side ask price (which equals 1 - no_ask target)
+        # We already computed yes_price such that: yes-side buy at yes_price = same economics as no-side buy at 1-yes_price
+        v2_side = "bid" if side == "yes" else "ask"
+        v2_price = f"{yes_price:.4f}"
+        v2_count = f"{int(count)}.00"
+        payload = {
+            "ticker": ticker,
+            "client_order_id": str(uuid.uuid4()),
+            "side": v2_side,
+            "count": v2_count,
+            "price": v2_price,
+            "time_in_force": "good_till_canceled",
+            "self_trade_prevention_type": "taker_at_cross",
+        }
         try:
-            data = await self._post("/portfolio/orders", payload)
-            o = data.get("order", {})
+            data = await self._post("/portfolio/events/orders", payload)
+            o = data if "order_id" in data else data.get("order", {})
             return OrderResult(
-                order_id=o.get("id", ""), ticker=ticker, side=side,
+                order_id=o.get("order_id", ""), ticker=ticker, side=side,
                 price=yes_price, count=count,
                 status=o.get("status", "unknown"),
                 filled=int(o.get("filled_count", 0)),
@@ -346,10 +351,10 @@ class KalshiClient:
                 "no_price": int(round(no_price * 100)),
             }
         try:
-            data = await self._post("/portfolio/orders", payload)
-            o = data.get("order", {})
+            data = await self._post("/portfolio/events/orders", payload)
+            o = data if "order_id" in data else data.get("order", {})
             return OrderResult(
-                order_id=o.get("id", ""), ticker=ticker, side=side,
+                order_id=o.get("order_id", ""), ticker=ticker, side=side,
                 price=yes_price, count=count,
                 status=o.get("status", "unknown"),
                 filled=int(o.get("filled_count", 0)),
