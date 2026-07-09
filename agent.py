@@ -16,7 +16,7 @@ Exit rules (checked every scan):
 """
 
 import asyncio, json, logging, random
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -167,6 +167,21 @@ def hours_until_game_from_ticker(ticker: str) -> float:
 
 
 
+SCAN_HOURS_UTC = [15, 0]  # 8am PT and 5pm PT (PDT = UTC-7); 0 is next-day 00:00 UTC
+
+
+def seconds_until_next_scan() -> int:
+    """Seconds until the next 8am/5pm Pacific scan slot."""
+    now = datetime.now(timezone.utc)
+    candidates = []
+    for day_offset in (0, 1):
+        for h in SCAN_HOURS_UTC:
+            t = (now + timedelta(days=day_offset)).replace(hour=h, minute=0, second=0, microsecond=0)
+            if t > now:
+                candidates.append(t)
+    return int((min(candidates) - now).total_seconds())
+
+
 def edge_threshold(m: KalshiMarket) -> float:
     """Loosened to find more opportunities. Still requires real edge."""
     spread = (m.yes_ask - m.yes_bid) if m.yes_bid and m.yes_ask else 0.5
@@ -277,8 +292,9 @@ class KalshiTradingAgent:
                 if self.stats.realized_pnl_dollars <= -self.config.max_daily_loss:
                     log.warning("Daily loss limit — stopping."); break
 
-                wait = 86400  # ONCE PER DAY (24 hours) — minimize Claude API costs
-                log.info(f"Next scan {wait//60}m {wait%60}s | positions {self.stats.count}/{100}")
+                wait = seconds_until_next_scan()
+                nxt = datetime.now(timezone.utc) + timedelta(seconds=wait)
+                log.info(f"Next scan in {wait//3600}h {(wait%3600)//60}m (at {nxt.strftime('%Y-%m-%d %H:%M UTC')}) | positions {self.stats.count}/{100}")
                 await asyncio.sleep(wait)
 
     async def _sync_positions(self, client):
