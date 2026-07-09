@@ -86,14 +86,19 @@ PRIORITY_SERIES = [
 ]
 
 DAILY_SERIES = [
-    "KXBTCD", "KXETHD",   # crypto — resolves today
-    "KXHIGHNY", "RAINNY", # weather — resolves today
-    "INXZ",               # S&P 500 — resolves today
+    # Crypto — resolves today
+    "KXBTCD", "KXETHD", "KXBTCMAXY", "KXETHMAXY",
+    # Indices — resolves today
+    "INXZ", "KXNASDAQ100",
 ]
 
 FALLBACK_SERIES = [
-    "KXCPIYOY", "KXCPI", "KXTRUMPMENTION",
-    "KXSCOTUSRESIGN", "KXPGAR1LEAD",
+    # Economics
+    "KXCPIYOY", "KXCPI", "KXFED", "KXGDP", "KXUNRATE", "KXPCE",
+    # Politics
+    "KXSCOTUSRESIGN", "KXPRES", "KXSENATE", "KXHOUSE",
+    # Golf
+    "KXPGAR1LEAD",
 ]
 
 CATEGORY_CONFIG = {
@@ -546,7 +551,11 @@ class KalshiTradingAgent:
 
         log.info("")
         log.info("[SPORTS] Fetching best markets...")
+        # Sports/weather first (rich signal), then daily + fallback (thin signal, higher conf bar)
         sports_mkts = await client.get_series_markets(PRIORITY_SERIES, limit=30)
+        other_mkts = await client.get_series_markets(DAILY_SERIES + FALLBACK_SERIES, limit=20)
+        log.info(f"  {len(sports_mkts)} priority + {len(other_mkts)} daily/fallback markets")
+        sports_mkts = sports_mkts + other_mkts
 
         tradeable = [
             m for m in sports_mkts
@@ -729,11 +738,11 @@ class KalshiTradingAgent:
             if self.stats.count >= 100:
                 log.info("  Max positions reached — stopping")
                 break
-            await self._place(client, opp["market"], opp["side"], opp["signal"], opp["category"])
-            placed += 1
+            if await self._place(client, opp["market"], opp["side"], opp["signal"], opp["category"]):
+                placed += 1
 
         log.info("")
-        log.info(f"  Scan complete: {placed}/{len(opportunities)} trades placed")
+        log.info(f"  Scan complete: {placed}/{len(opportunities)} orders filled")
 
     async def _place(self, client, market: KalshiMarket, side: str,
                      signal: TradeSignal, category: str):
@@ -741,10 +750,10 @@ class KalshiTradingAgent:
         _event = event_root(market.ticker)
         if any(event_root(tk) == _event for tk in self.stats.positions):
             log.info(f"  ⊘ SKIP {market.ticker} — already hold position on this event")
-            return
+            return False
         if market.ticker in self.stats.positions:
             log.info(f"  ⊘ SKIP {market.ticker} — already hold this ticker")
-            return
+            return False
         c = signal.confidence
         edge = abs(signal.edge)
         # Combine confidence + edge for sizing
@@ -764,16 +773,16 @@ class KalshiTradingAgent:
                 ens = await get_ensemble_forecast(market.ticker)
             except Exception as e:
                 log.warning(f"  Weather ensemble failed for {market.ticker}: {e}")
-                return
+                return False
             
             if not ens:
                 log.info(f"  ⊘ WEATHER UNPARSEABLE {market.ticker}")
-                return
+                return False
             
             rec = ens["recommendation"]
             if rec == "SKIP":
                 log.info(f"  ⊘ WEATHER SKIP {market.ticker} — {ens['reason']}")
-                return
+                return False
             
             # Override side based on ensemble (ignore Claude's opinion)
             ensemble_side = "yes" if rec == "BUY_YES" else "no"
@@ -798,11 +807,11 @@ class KalshiTradingAgent:
             _check_price = market.yes_ask if side == "yes" else market.no_ask
             if _check_price <= 0.15:
                 log.info(f"  ⊘ WEATHER LONGSHOT BLOCKED {market.ticker} @ ${_check_price:.2f} (need >15c for weather)")
-                return
+                return False
             bet = min(bet, 10.0)
             log.info(f"  Weather discipline: bet capped at ${bet:.2f}")
         if price <= 0: price = market.mid_price if side == "yes" else round(1 - market.mid_price, 4)
-        if price <= 0: log.warning("  No valid price"); return
+        if price <= 0: log.warning("  No valid price"); return False
 
         count = max(1, int(bet / price))
         cost  = round(price * count, 2)
@@ -813,7 +822,7 @@ class KalshiTradingAgent:
             log.info(f"  [DRY RUN] BUY {side.upper()} {market.ticker} | {count}x@{price:.0%} | ${cost:.2f}")
         else:
             result = await client.place_order(market.ticker, side, price, count)
-            if not result: log.error("  Order failed"); return
+            if not result: log.error("  Order failed"); return False
             log.info(f"  ✓ BUY {side.upper()} {market.ticker} | {count}x@{price:.0%} | ${cost:.2f} | id={result.order_id}")
 
         self.stats.positions[market.ticker] = Position(
@@ -825,6 +834,7 @@ class KalshiTradingAgent:
         )
         self.stats.placed += 1
         self._save_trade_log()
+        return True
 
     def _save_trade_log(self):
         try:
