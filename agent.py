@@ -170,20 +170,29 @@ def hours_until_game_from_ticker(ticker: str) -> float:
     import re
     from datetime import datetime, timezone
     
-    m = re.match(r"KX[A-Z]+-?(\d{2})([A-Z]{3})(\d{2})", ticker)
+    # Series name may contain digits (KXMLBF5, KXNBA1H...), so match up to the dash.
+    # Date block is YYMONDD, optionally followed by HHMM start time (UTC).
+    m = re.match(r"KX[A-Z0-9]+-(\d{2})([A-Z]{3})(\d{2})(\d{4})?", ticker)
     if not m:
         return None
-    
+
     try:
         yy = int(m.group(1)) + 2000
         mon_str = m.group(2)
         dd = int(m.group(3))
+        hhmm = m.group(4)
         months = {"JAN":1,"FEB":2,"MAR":3,"APR":4,"MAY":5,"JUN":6,
                   "JUL":7,"AUG":8,"SEP":9,"OCT":10,"NOV":11,"DEC":12}
         mon = months.get(mon_str)
         if not mon:
             return None
-        game_start = datetime(yy, mon, dd, 0, 0, 0, tzinfo=timezone.utc)
+        if hhmm:
+            hh, mi = int(hhmm[:2]), int(hhmm[2:])
+            if hh > 23 or mi > 59:
+                hh, mi = 0, 0
+        else:
+            hh, mi = 0, 0
+        game_start = datetime(yy, mon, dd, hh, mi, 0, tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
         return (game_start - now).total_seconds() / 3600
     except Exception:
