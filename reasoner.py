@@ -156,7 +156,7 @@ Find the edge. What is the true YES probability? Is the market mispriced?"""
 
         try:
             resp = self.client.messages.create(
-                model=self.model, max_tokens=400,
+                model=self.model, max_tokens=1024,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -164,7 +164,26 @@ Find the edge. What is the true YES probability? Is the market mispriced?"""
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"): raw = raw[4:]
-            data  = json.loads(raw)
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                # Response truncated mid-string. The fields we need (action,
+                # confidence, estimated_prob) come before the long `reasoning`
+                # field, so pull them out with a targeted match rather than
+                # discarding the whole evaluation.
+                import re as _re
+                def _grab(key, cast):
+                    m = _re.search(rf'"{key}"\s*:\s*"?([^",}}\s]+)"?', raw)
+                    return cast(m.group(1)) if m else None
+                ep_v   = _grab("estimated_prob", float)
+                conf_v = _grab("confidence", float)
+                act_v  = _grab("action", str)
+                if ep_v is None or conf_v is None or act_v is None:
+                    raise
+                log.info(f"  ↻ salvaged truncated JSON for {market.ticker}")
+                data = {"estimated_prob": ep_v, "confidence": conf_v,
+                        "action": act_v, "reasoning": "(truncated)",
+                        "factor_scores": {}}
             ep    = float(data["estimated_prob"])
             return TradeSignal(
                 ticker=market.ticker, title=market.title,
