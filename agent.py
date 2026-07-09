@@ -799,6 +799,10 @@ class KalshiTradingAgent:
         bet   = round(40.0 * frac, 2)  # HARDCODED: was self.config.max_bet_size
         if weather_cap is not None:
             bet = min(bet, weather_cap)
+        # Thin-signal categories: cap exposure until we have outcome data by category
+        if category in ("econ", "politics", "crypto"):
+            bet = min(bet, 10.0)
+            log.info(f"  Thin-signal cap ({category}): bet capped at ${bet:.2f}")
         price = (market.yes_ask if side == "yes" else market.no_ask)
         
         # WEATHER DISCIPLINE: only high-probability outcomes, cap at $10
