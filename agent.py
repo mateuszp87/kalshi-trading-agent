@@ -235,6 +235,30 @@ def required_confidence(category: str, hours_until_close) -> tuple:
     return BASE_CONFIDENCE, "same-week, rich signal"
 
 
+# How long after tipoff/first-pitch is a market still genuinely uncertain?
+# MLB first-five-innings resolves ~90 min in — betting it 4h later is betting
+# a settled outcome. NBA in the 3rd quarter is a real bet. One number can't
+# cover both.
+IN_PROGRESS_WINDOW_HOURS = {
+    "KXMLBF5":     -1.5,   # F5 done after ~5 innings
+    "KXMLBSPREAD": -3.0,   # full game
+    "KXMLBTOTAL":  -3.0,
+    "KXMLBGAME":   -3.0,
+    "KXNBAGAME":   -2.0,   # in-progress NBA is the original strategy
+    "KXNHLGAME":   -2.0,
+    "KXWNBAGAME":  -2.0,
+    "KXATPMATCH":  -1.0,   # match length varies wildly
+    "KXWTAMATCH":  -1.0,
+}
+DEFAULT_IN_PROGRESS_WINDOW = -1.0
+
+
+def in_progress_window(ticker: str) -> float:
+    """Most-negative game_h we'll still accept for this series."""
+    prefix = ticker.split("-")[0].upper()
+    return IN_PROGRESS_WINDOW_HOURS.get(prefix, DEFAULT_IN_PROGRESS_WINDOW)
+
+
 def edge_threshold(m: KalshiMarket) -> float:
     """Loosened to find more opportunities. Still requires real edge."""
     spread = (m.yes_ask - m.yes_bid) if m.yes_bid and m.yes_ask else 0.5
@@ -416,13 +440,30 @@ class KalshiTradingAgent:
             known = set(self._pnl.get("known_ids", []))
             new = 0
             for s in await client.get_settlements():
-                sid = s.get("id") or s.get("market_ticker") or ""
-                if not sid or sid in known: continue
-                rev  = float(s.get("revenue", 0)) / 100
-                cost = float(s.get("cost", 0)) / 100
-                pnl  = round(rev - cost, 2)
-                won  = pnl > 0
-                ticker = s.get("market_ticker", "")
+                ticker = s.get("ticker", "")
+                sid = ticker + "|" + s.get("settled_time", "")
+                if not ticker or sid in known: continue
+
+                # Kalshi settlement fields (verified 2026-07): `revenue` is
+                # unreliable (often 0 on wins). Compute from counts + result.
+                yes_ct   = float(s.get("yes_count_fp", 0) or 0)
+                no_ct    = float(s.get("no_count_fp", 0) or 0)
+                yes_cost = float(s.get("yes_total_cost_dollars", 0) or 0)
+                no_cost  = float(s.get("no_total_cost_dollars", 0) or 0)
+                fees     = float(s.get("fee_cost", 0) or 0)
+                result   = s.get("market_result", "")
+
+                cost = yes_cost + no_cost
+                # Winning side pays $1.00 per contract
+                if result == "yes":
+                    proceeds = yes_ct
+                elif result == "no":
+                    proceeds = no_ct
+                else:
+                    proceeds = 0.0
+
+                pnl = round(proceeds - cost - fees, 2)
+                won = pnl > 0
                 self._pnl["all_time_pnl"] = round(self._pnl["all_time_pnl"] + pnl, 2)
                 self._pnl["wins" if won else "losses"] += 1
                 self._pnl["trades"].append({"id": sid, "ticker": ticker,
@@ -594,7 +635,8 @@ class KalshiTradingAgent:
             ])
             if is_sports:
                 game_h = hours_until_game_from_ticker(t)
-                if game_h is None or game_h > 168 or game_h < -18:  # up to a week out
+                min_h = in_progress_window(t)
+                if game_h is None or game_h > 168 or game_h < min_h:
                     continue
             else:
                 if h is None or h > 168:
