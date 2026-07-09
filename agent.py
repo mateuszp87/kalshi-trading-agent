@@ -52,6 +52,16 @@ PRIORITY_SERIES = [
     "KXMLBGAME",
     "KXMLBF5",          # First 5 innings — resolves in ~1.5h
     "KXMLBRUNS",        # Total runs — same game
+    "KXMLBTOTAL",       # Over/under total runs
+    "KXMLBSPREAD",      # Run line
+    # World Cup 2026
+    "KXWCGAME",
+    "KXWCTOTAL",
+    "KXWCSPREAD",
+    # WNBA (summer season)
+    "KXWNBAGAME",
+    "KXWNBASPREAD",
+    "KXWNBATOTAL",
     # Soccer matches (resolve in ~2h)
     "KXEPLGAME",
     "KXUCLGAME",
@@ -96,25 +106,40 @@ CATEGORY_CONFIG = {
 }
 
 
+# Kalshi multivariate/parlay series — penny combos, 1c spreads, huge profit_score.
+# These dominate any spread-weighted ranking and are not what this agent trades.
+EXCLUDED_SERIES_PREFIXES = ("KXMVE",)
+
+
 def profit_score(m: KalshiMarket) -> float:
     """Score by FAST-CLOSE profit potential. Heavily favor same-day markets."""
+    if m.ticker.upper().startswith(EXCLUDED_SERIES_PREFIXES):
+        return 0.0
+    # Penny longshots: never worth it regardless of stated confidence
+    if m.yes_ask <= 0.15 and m.yes_bid <= 0.15:
+        return 0.0
+    if m.yes_ask >= 0.85 and m.yes_bid >= 0.85:
+        return 0.0
+
     vol    = m.volume or 0
     spread = max((m.yes_ask - m.yes_bid) if m.yes_bid and m.yes_ask else 0.5, 0.001)
     h      = m.hours_until_close or 9999
     
-    # HARD GATE: markets beyond 48h get zero score (won't be picked)
-    if h > 48:
+    # HARD GATE: markets beyond 168h (1 week) get zero score
+    if h > 168:
         return 0.0
     
-    # Urgency tiers — heavily favor same-day
+    # Urgency tiers — still favor same-day, but allow up to a week
     if h < 3:       urgency = 5000    # resolves in hours
     elif h < 12:    urgency = 2000    # resolves today
     elif h < 24:    urgency = 800     # resolves within 24h
     elif h < 48:    urgency = 200     # tomorrow
-    else:           urgency = 0       # blocked above
+    elif h < 96:    urgency = 60      # this week
+    elif h < 168:   urgency = 20      # within a week
+    else:           urgency = 0
     
     vol_score    = min(vol / 10000, 1000)
-    spread_score = 1.0 / spread       # tighter = better
+    spread_score = min(1.0 / spread, 25)   # cap: 4c spread and tighter score alike
     return vol_score * spread_score * urgency
 
 
@@ -180,6 +205,26 @@ def seconds_until_next_scan() -> int:
             if t > now:
                 candidates.append(t)
     return int((min(candidates) - now).total_seconds())
+
+
+# Confidence required, by how much real signal we actually have.
+# Sports/weather have live scores + forecast ensembles feeding the reasoner.
+# Econ/politics/crypto have thin signal — demand more before risking money.
+BASE_CONFIDENCE = 0.63
+THIN_SIGNAL_CONFIDENCE = 0.70
+LONG_HORIZON_CONFIDENCE = 0.75
+
+RICH_SIGNAL_CATEGORIES = {"sports", "weather"}
+
+
+def required_confidence(category: str, hours_until_close) -> tuple:
+    """Returns (threshold, reason) — higher bar for thin signal and distant resolution."""
+    h = hours_until_close if hours_until_close is not None else 9999
+    if h > 72:
+        return LONG_HORIZON_CONFIDENCE, f"long-horizon ({h:.0f}h out)"
+    if category not in RICH_SIGNAL_CATEGORIES:
+        return THIN_SIGNAL_CONFIDENCE, f"thin-signal category ({category})"
+    return BASE_CONFIDENCE, "same-week, rich signal"
 
 
 def edge_threshold(m: KalshiMarket) -> float:
@@ -492,7 +537,7 @@ class KalshiTradingAgent:
 
         log.info("")
         log.info("[SPORTS] Fetching best markets...")
-        sports_mkts = await client.get_series_markets(PRIORITY_SERIES, limit=30)  # Doubled from 15 — more candidates without loosening filters
+        sports_mkts = await client.get_series_markets(PRIORITY_SERIES, limit=30)
 
         tradeable = [
             m for m in sports_mkts
@@ -537,10 +582,10 @@ class KalshiTradingAgent:
             ])
             if is_sports:
                 game_h = hours_until_game_from_ticker(t)
-                if game_h is None or game_h > 72 or game_h < -18:  # allow in-progress + late-night games  # -6 allows in-progress games
+                if game_h is None or game_h > 168 or game_h < -18:  # up to a week out
                     continue
             else:
-                if h is None or h > 72:
+                if h is None or h > 168:
                     continue
             # STRICT: max 1 position per event (no correlated duplicate bets)
             event = event_root(t)
@@ -551,10 +596,15 @@ class KalshiTradingAgent:
                 continue
             candidates.append(market)
 
-        log.info(f"  {len(candidates)} passed hard filters — evaluating with Claude...")
+        MAX_EVALS = 40  # ceiling on Claude calls per scan (~$0.40)
+        candidates.sort(key=profit_score, reverse=True)
+        if len(candidates) > MAX_EVALS:
+            log.info(f"  {len(candidates)} passed hard filters — evaluating top {MAX_EVALS} by profit_score")
+            candidates = candidates[:MAX_EVALS]
+        else:
+            log.info(f"  {len(candidates)} passed hard filters — evaluating with Claude...")
 
         # ═══ PHASE 2: Claude evaluation — collect all BUY recommendations ═══
-        MIN_CONFIDENCE = 0.63  # loosened from 0.68
         opportunities = []
 
         for market in candidates:
@@ -627,7 +677,9 @@ class KalshiTradingAgent:
             if signal.action == "skip":
                 self.stats.skipped += 1
                 continue
-            if signal.confidence < MIN_CONFIDENCE:
+            min_conf, conf_reason = required_confidence(category, market.hours_until_close)
+            if signal.confidence < min_conf:
+                log.info(f"    ⊘ conf {signal.confidence:.0%} < {min_conf:.0%} required — {conf_reason}")
                 self.stats.skipped += 1
                 continue
 
@@ -647,6 +699,8 @@ class KalshiTradingAgent:
                 "side": side,
                 "category": category,
                 "score": signal.confidence * abs(signal.edge),
+                "conf_gate": min_conf,
+                "conf_reason": conf_reason,
             })
             log.info(f"  ✓ OPP: {market.ticker} {side.upper()} conf={signal.confidence:.0%} edge={signal.edge:+.2f} score={signal.confidence * abs(signal.edge):.3f}")
 

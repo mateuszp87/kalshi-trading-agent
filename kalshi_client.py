@@ -185,6 +185,30 @@ class KalshiClient:
         log.info(f"Fetched {len(all_markets)} markets from {len(series_tickers)} series")
         return all_markets
 
+    async def get_all_open_markets(self, max_pages: int = 20) -> list:
+        """Sweep every open market on Kalshi (paginated)."""
+        out, cursor, page = [], None, 0
+        while page < max_pages:
+            page += 1
+            params = {"status": "open", "limit": 1000}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                data = await self._get("/markets", params=params)
+            except Exception as e:
+                log.warning(f"Market sweep page {page} failed: {e}")
+                break
+            batch = data.get("markets", [])
+            for m in batch:
+                p = self._parse_market(m, category=m.get("ticker", "").split("-")[0])
+                if p and (p.yes_bid > 0 or p.yes_ask > 0):
+                    out.append(p)
+            cursor = data.get("cursor")
+            if not cursor or not batch:
+                break
+        log.info(f"Swept {len(out)} open markets across {page} pages")
+        return out
+
     async def get_market(self, ticker: str) -> dict:
         """Get current price for a single ticker (used for exit checks)."""
         try:
