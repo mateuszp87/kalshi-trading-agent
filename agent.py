@@ -51,7 +51,6 @@ PRIORITY_SERIES = [
     # MLB games (resolve today/tonight)
     "KXMLBGAME",
     "KXMLBF5",          # First 5 innings — resolves in ~1.5h
-    "KXMLBRUNS",        # Total runs — same game
     "KXMLBTOTAL",       # Over/under total runs
     "KXMLBSPREAD",      # Run line
     # World Cup 2026
@@ -73,30 +72,25 @@ PRIORITY_SERIES = [
     "KXMLSGAME",
     # Tennis (resolves in ~2-4h)
     "KXATPMATCH",
-    "KXWTAMATCH",
     # Weather (resolves today)
     "KXHIGHNY",
     "KXHIGHDEN",
     "KXHIGHCHI",
     "KXHIGHLAX",
-    "KXRAINNY",
-    # Crypto daily (resolves today)
-    "KXBTCD",
-    "KXETHD",
 ]
 
 DAILY_SERIES = [
     # Crypto — resolves today
     "KXBTCD", "KXETHD", "KXBTCMAXY", "KXETHMAXY",
-    # Indices — resolves today
-    "INXZ", "KXNASDAQ100",
+    # Indices
+    "KXNASDAQ100",
 ]
 
 FALLBACK_SERIES = [
     # Economics
-    "KXCPIYOY", "KXCPI", "KXFED", "KXGDP", "KXUNRATE", "KXPCE",
+    "KXCPIYOY", "KXCPI", "KXFED", "KXGDP",
     # Politics
-    "KXSCOTUSRESIGN", "KXPRES", "KXSENATE", "KXHOUSE",
+    "KXSCOTUSRESIGN",
     # Golf
     "KXPGAR1LEAD",
 ]
