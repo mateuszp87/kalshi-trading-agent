@@ -888,7 +888,41 @@ class KalshiTradingAgent:
         )
         self.stats.placed += 1
         self._save_trade_log()
+        self._log_signal(market, side, signal, category, price, count, cost)
         return True
+
+    def _log_signal(self, market, side, signal, category, price, count, cost):
+        """Record what Claude believed at entry.
+
+        Kalshi remembers the trade. Nothing remembers the reasoning behind
+        it, so it has to be written down now or it's gone. The dashboard
+        joins this against settlements to answer: does 78% confidence
+        actually resolve yes 78% of the time?
+        """
+        try:
+            try:
+                with open("signal_log.json") as f:
+                    rows = json.load(f)
+            except Exception:
+                rows = []
+            rows.append({
+                "ticker": market.ticker,
+                "title": market.title[:100],
+                "category": category,
+                "side": side,
+                "confidence": round(signal.confidence, 4),
+                "estimated_prob": round(signal.estimated_prob, 4),
+                "kalshi_mid": round(signal.kalshi_mid, 4),
+                "edge": round(signal.edge, 4),
+                "entry_price": round(price, 4),
+                "contracts": int(count),
+                "cost": round(cost, 2),
+                "entry_time": datetime.now(timezone.utc).isoformat(),
+            })
+            with open("signal_log.json", "w") as f:
+                json.dump(rows, f, indent=2)
+        except Exception as e:
+            log.warning(f"signal_log: {e}")
 
     def _save_trade_log(self):
         try:

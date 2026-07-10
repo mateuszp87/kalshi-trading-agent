@@ -31,6 +31,7 @@ tr:last-child td{border-bottom:none}
 <div class="cards" id="cards"></div>
 <h2>Open positions</h2><div id="open"></div>
 <h2>Closed positions</h2><div id="closed"></div>
+<h2>Calibration — does confidence mean anything?</h2><div id="calib"></div>
 </div>
 <script>
 const $=(s)=>document.querySelector(s);
@@ -95,5 +96,38 @@ async function load(){
     $("#closed").innerHTML=h+"</tbody></table>";
   }
 }
+function calibTable(rows, label){
+  if(!rows.length) return "";
+  let h=`<table style="margin-bottom:12px"><thead><tr><th>${label}</th><th>Trades</th>
+    <th>Claude claimed</th><th>Actually won</th><th>Gap</th><th>Net P&L</th></tr></thead><tbody>`;
+  for(const r of rows){
+    const gap = (r.actual - r.claimed).toFixed(1);
+    h+=`<tr><td>${r.key}</td><td>${r.n}</td>
+      <td>${r.claimed}%</td><td>${r.actual}%</td>
+      <td class="${gap>=0?'pos':'neg'}">${gap>=0?'+':''}${gap}pp</td>
+      <td class="${cls(r.pnl)}">${money(r.pnl)}</td></tr>`;
+  }
+  return h+"</tbody></table>";
+}
+
+function renderCalib(d){
+  if(!d.n_graded){
+    $("#calib").innerHTML =
+      `<div class="empty">no graded trades yet — the agent started recording
+       its confidence tonight, so this fills in as positions settle</div>`;
+    return;
+  }
+  const c = d.calibration;
+  let h = calibTable(c.by_confidence, "Confidence bucket")
+        + calibTable(c.by_category, "Category");
+  if(d.n_graded < 20){
+    h += `<div class="empty" style="margin-top:4px">${d.n_graded} graded trades —
+      too few to conclude anything. Wait for ~50.</div>`;
+  }
+  $("#calib").innerHTML = h;
+}
+
+const _load = load;
+load = async function(){ await _load(); const d = await (await fetch("/api/data")).json(); renderCalib(d); };
 load(); setInterval(load, 30000);
 </script></body></html>

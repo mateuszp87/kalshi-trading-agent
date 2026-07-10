@@ -86,9 +86,61 @@ async def fetch_price(client, ticker):
         return {"yes_bid": 0, "no_bid": 0, "title": ticker}
 
 
+def load_signals():
+    """ticker -> what Claude believed when it placed. May be empty."""
+    try:
+        with open("signal_log.json") as f:
+            rows = json.load(f)
+    except Exception:
+        return {}
+    out = {}
+    for r in rows:
+        if after_cutoff(r.get("entry_time")):
+            out[r["ticker"]] = r      # last fill on a ticker wins
+    return out
+
+
+def calibration(closed):
+    """Did claimed confidence track actual outcomes?"""
+    by_cat, by_bucket = {}, {}
+
+    def bump(d, k, row):
+        e = d.setdefault(k, {"n": 0, "wins": 0, "conf_sum": 0.0, "pnl": 0.0})
+        e["n"] += 1
+        e["wins"] += 1 if row["won"] else 0
+        e["conf_sum"] += row["confidence"]
+        e["pnl"] += row["pnl"]
+
+    for r in closed:
+        if r.get("confidence") is None:
+            continue      # placed before we started recording
+        bump(by_cat, r.get("category", "unknown"), r)
+        conf = r["confidence"]
+        b = "<60%" if conf < 0.60 else ("60-70%" if conf < 0.70
+            else ("70-80%" if conf < 0.80 else "80%+"))
+        bump(by_bucket, b, r)
+
+    def finish(d):
+        out = []
+        for k, e in d.items():
+            out.append({
+                "key": k, "n": e["n"],
+                "claimed": round(e["conf_sum"] / e["n"] * 100, 1),
+                "actual": round(e["wins"] / e["n"] * 100, 1),
+                "pnl": round(e["pnl"], 2),
+            })
+        return sorted(out, key=lambda x: -x["n"])
+
+    order = ["<60%", "60-70%", "70-80%", "80%+"]
+    buckets = finish(by_bucket)
+    buckets.sort(key=lambda x: order.index(x["key"]) if x["key"] in order else 9)
+    return {"by_category": finish(by_cat), "by_confidence": buckets}
+
+
 async def gather():
     async with KalshiClient(cfg.kalshi_api_key, cfg.kalshi_base_url,
                             cfg.kalshi_private_key_path) as c:
+        signals = load_signals()
         cash = await c.get_balance()
 
         # ---- fills since cutoff -----------------------------------------
@@ -181,9 +233,13 @@ async def gather():
             if pnl > 0: wins += 1
             else: losses += 1
             series, event, outcome = decode(t)
+            sig = signals.get(t, {})
             closed_rows.append({
                 "ticker": t, "title": prices.get(t, {}).get("title", t),
                 "series": series, "event": event, "outcome": outcome,
+                "category": sig.get("category"),
+                "confidence": sig.get("confidence"),
+                "edge": sig.get("edge"),
                 "side": side, "qty": int(qty),
                 "entry_time": first_fill.get(t, ""),
                 "settled_time": s.get("settled_time", ""),
@@ -208,6 +264,8 @@ async def gather():
             "n_open": len(open_rows), "n_closed": len(closed_rows),
             "n_fills": len(fills),
             "open": open_rows, "closed": closed_rows,
+            "calibration": calibration(closed_rows),
+            "n_graded": sum(1 for r in closed_rows if r.get("confidence") is not None),
             "updated": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
 
