@@ -225,9 +225,27 @@ LONG_HORIZON_CONFIDENCE = 0.75
 RICH_SIGNAL_CATEGORIES = {"sports", "weather"}
 
 
-def required_confidence(category: str, hours_until_close) -> tuple:
-    """Returns (threshold, reason) — higher bar for thin signal and distant resolution."""
+def required_confidence(category: str, hours_until_close, ticker: str = "") -> tuple:
+    """Returns (threshold, reason) — higher bar for thin signal and distant resolution.
+
+    For sports, Kalshi's close_time sits days past the game (settlement buffer),
+    so a game tonight reads as 80h out and wrongly demands the long-horizon bar.
+    Use the ticker's encoded game time instead, as the hard filter already does.
+    """
     h = hours_until_close if hours_until_close is not None else 9999
+
+    # Only sports tickers encode a game time. Weather/econ tickers carry a
+    # date that the parser will happily read as a "game", producing nonsense.
+    is_sports = ticker and any(x in ticker.upper() for x in (
+        "KXNBA", "KXNHL", "KXMLB", "KXNFL", "KXWNBA", "KXCFB", "KXCBB",
+        "KXUCL", "KXUEL", "KXEPL", "KXLALIGA", "KXSERIEA", "KXBUNDESLIGA",
+        "KXLIGUE1", "KXMLS", "KXATP", "KXWTA", "KXWC", "KXPGA",
+        "KXUFC", "KXBOXING"))
+    if is_sports:
+        game_h = hours_until_game_from_ticker(ticker)
+        if game_h is not None:
+            h = game_h
+
     if h > 72:
         return LONG_HORIZON_CONFIDENCE, f"long-horizon ({h:.0f}h out)"
     if category not in RICH_SIGNAL_CATEGORIES:
@@ -745,7 +763,8 @@ class KalshiTradingAgent:
             if signal.action == "skip":
                 self.stats.skipped += 1
                 continue
-            min_conf, conf_reason = required_confidence(category, market.hours_until_close)
+            min_conf, conf_reason = required_confidence(
+                category, market.hours_until_close, market.ticker)
             if signal.confidence < min_conf:
                 log.info(f"    ⊘ conf {signal.confidence:.0%} < {min_conf:.0%} required — {conf_reason}")
                 self.stats.skipped += 1
