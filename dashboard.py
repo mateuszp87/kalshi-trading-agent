@@ -199,9 +199,12 @@ async def gather():
             at_risk += cost
             mark += value
             series, event, outcome = decode(t)
+            osig = signals.get(t, {})
             open_rows.append({
                 "ticker": t, "title": pr.get("title", t),
                 "series": series, "event": event, "outcome": outcome,
+                "confidence": osig.get("confidence"),
+                "edge": osig.get("edge"),
                 "side": side,
                 "qty": int(qty), "entry_time": first_fill.get(t, ""),
                 "avg_price": round(cost / qty, 3) if qty else 0,
@@ -268,6 +271,32 @@ async def gather():
             "n_graded": sum(1 for r in closed_rows if r.get("confidence") is not None),
             "updated": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
+
+
+@app.route("/api/import", methods=["POST"])
+def api_import():
+    """Paste raw Render log lines. We pull out SIGNAL {...} and merge them."""
+    import re as _re
+    from flask import request
+    text = request.get_data(as_text=True) or ""
+    try:
+        rows = json.load(open("signal_log.json"))
+    except Exception:
+        rows = []
+    seen = {(r.get("ticker"), r.get("entry_time")) for r in rows}
+    added = 0
+    for m in _re.finditer(r'SIGNAL (\{.*?\})\s*$', text, _re.M):
+        try:
+            r = json.loads(m.group(1))
+        except Exception:
+            continue
+        k = (r.get("ticker"), r.get("entry_time"))
+        if k in seen or not r.get("ticker"):
+            continue
+        rows.append(r); seen.add(k); added += 1
+    rows.sort(key=lambda r: r.get("entry_time", ""))
+    json.dump(rows, open("signal_log.json", "w"), indent=2)
+    return jsonify({"added": added, "total": len(rows)})
 
 
 @app.route("/api/data")

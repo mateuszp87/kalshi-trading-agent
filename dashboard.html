@@ -31,6 +31,18 @@ tr:last-child td{border-bottom:none}
 <div class="cards" id="cards"></div>
 <h2>Open positions</h2><div id="open"></div>
 <h2>Closed positions</h2><div id="closed"></div>
+<h2>Import signals from Render logs</h2>
+<div class="card" style="margin-bottom:8px">
+  <div class="note" style="margin-bottom:6px">
+    Paste any log lines containing <code>SIGNAL {...}</code>. Duplicates are ignored.
+  </div>
+  <textarea id="paste" rows="4" style="width:100%;background:#0d1117;color:#e6edf3;
+    border:1px solid var(--line);border-radius:6px;padding:8px;font:12px monospace"></textarea>
+  <button id="imp" style="margin-top:6px;background:var(--acc);border:none;color:#08101c;
+    padding:6px 14px;border-radius:6px;font-weight:600;cursor:pointer">Import</button>
+  <span id="impmsg" class="note" style="margin-left:10px"></span>
+</div>
+
 <h2>Calibration — does confidence mean anything?</h2><div id="calib"></div>
 </div>
 <script>
@@ -63,13 +75,14 @@ async function load(){
   if(!d.open.length){ $("#open").innerHTML='<div class="empty">none</div>'; }
   else{
     let h=`<table><thead><tr><th>Market</th><th>Side</th><th>Qty</th>
-      <th>Entered</th><th>Avg</th><th>Now</th><th>Cost</th><th>Value</th>
+      <th>Entered</th><th>Claude</th><th>Avg</th><th>Now</th><th>Cost</th><th>Value</th>
       <th>Unrealized</th></tr></thead><tbody>`;
     for(const r of d.open){
       h+=`<tr><td><b>${r.title.slice(0,52)}</b>
         <div class="tick">${r.series}${r.event?" · "+r.event:""}${r.outcome?" · bet "+r.outcome:""}</div></td>
         <td class="${r.side==='YES'?'pos':'neg'}">${r.side}</td>
         <td>${r.qty}</td><td>${when(r.entry_time)}</td>
+        <td>${r.confidence==null?'<span style="opacity:.4">—</span>':(r.confidence*100).toFixed(0)+'%'}</td>
         <td>$${r.avg_price.toFixed(2)}</td><td>$${r.now.toFixed(2)}</td>
         <td>${money(r.cost)}</td><td>${money(r.value)}</td>
         <td class="${cls(r.unrealized)}">${money(r.unrealized)}
@@ -82,13 +95,14 @@ async function load(){
     $("#closed").innerHTML='<div class="empty">nothing has settled since '+d.cutoff+'</div>';
   } else {
     let h=`<table><thead><tr><th>Market</th><th>Side</th><th>Qty</th>
-      <th>Entered</th><th>Settled</th><th>Cost</th><th>Result</th>
+      <th>Entered</th><th>Settled</th><th>Claude</th><th>Cost</th><th>Result</th>
       <th>P&L</th></tr></thead><tbody>`;
     for(const r of d.closed){
       h+=`<tr><td><b>${(r.title||r.ticker).slice(0,52)}</b>
         <div class="tick">${r.series}${r.event?" · "+r.event:""}${r.outcome?" · bet "+r.outcome:""}</div></td>
         <td class="${r.side==='YES'?'pos':'neg'}">${r.side}</td>
         <td>${r.qty}</td><td>${when(r.entry_time)}</td><td>${when(r.settled_time)}</td>
+        <td>${r.confidence==null?'<span style="opacity:.4">—</span>':(r.confidence*100).toFixed(0)+'%'}</td>
         <td>${money(r.cost)}</td>
         <td>${r.won?'<span class="pos">WON</span>':'<span class="neg">LOST</span>'}</td>
         <td class="${cls(r.pnl)}">${money(r.pnl)}</td></tr>`;
@@ -126,6 +140,16 @@ function renderCalib(d){
   }
   $("#calib").innerHTML = h;
 }
+
+document.addEventListener("click", async (e) => {
+  if(e.target.id !== "imp") return;
+  const box = $("#paste");
+  const res = await fetch("/api/import", {method:"POST", body: box.value});
+  const j = await res.json();
+  $("#impmsg").textContent = `added ${j.added}, ${j.total} total`;
+  box.value = "";
+  load();
+});
 
 const _load = load;
 load = async function(){ await _load(); const d = await (await fetch("/api/data")).json(); renderCalib(d); };

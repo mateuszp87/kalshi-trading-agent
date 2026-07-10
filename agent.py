@@ -921,6 +921,9 @@ class KalshiTradingAgent:
             })
             with open("signal_log.json", "w") as f:
                 json.dump(rows, f, indent=2)
+            # Also emit to stdout. Render's disk is ephemeral; its logs are not.
+            # Copy these lines into the dashboard's import box.
+            log.info("SIGNAL " + json.dumps(rows[-1], separators=(",", ":")))
         except Exception as e:
             log.warning(f"signal_log: {e}")
 
