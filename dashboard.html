@@ -1,20 +1,99 @@
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Kalshi Dashboard</title>
+<!doctype html><html><head><meta charset="utf-8">
+<title>Kalshi Agent</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#0a0e27;color:#e2e8f0;padding:1.5rem}.hdr{margin-bottom:1.5rem}.hdr h1{font-size:1.75rem;color:#60a5fa}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem}.metric{background:#1e293b;border:1px solid #334155;border-radius:8px;padding:1rem}.metric-label{font-size:0.7rem;text-transform:uppercase;color:#94a3b8;margin-bottom:0.5rem}.metric-value{font-size:1.75rem;font-weight:bold}.metric-sub{font-size:0.8rem;color:#64748b;margin-top:0.25rem}.pos{color:#10b981}.neg{color:#ef4444}.panel{background:#1e293b;border:1px solid #334155;border-radius:8px;overflow:hidden;margin-bottom:1rem}.panel-hdr{padding:0.75rem 1rem;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center}.panel-hdr h2{font-size:0.9rem}.pill{background:#3b82f6;color:#fff;padding:0.2rem 0.6rem;border-radius:12px;font-size:0.7rem;font-weight:bold}table{width:100%;border-collapse:collapse}th,td{padding:0.75rem;text-align:left}th{font-size:0.7rem;text-transform:uppercase;color:#94a3b8;font-weight:600}tr:not(:last-child) td{border-bottom:1px solid #334155}tr:hover{background:#1e293b80}.ticker{font-family:monospace;color:#60a5fa;font-size:0.85rem}.loading{padding:1.5rem;text-align:center;color:#64748b}.mono{font-family:monospace}.right{text-align:right}
-</style></head><body>
-<div class="hdr"><h1>Kalshi Trading Dashboard</h1></div>
-<div class="metrics">
-<div class="metric"><div class="metric-label">Balance</div><div class="metric-value mono" id="balance">$0</div></div>
-<div class="metric"><div class="metric-label">Realized P&L</div><div class="metric-value mono" id="realized">$0</div><div class="metric-sub" id="realized-sub">—</div></div>
-<div class="metric"><div class="metric-label">Unrealized P&L</div><div class="metric-value mono" id="unrealized">$0</div></div>
-<div class="metric"><div class="metric-label">Win Rate</div><div class="metric-value" id="winrate">0%</div><div class="metric-sub" id="wr-sub">—</div></div>
+:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--dim:#8b949e;--fg:#e6edf3;
+      --pos:#3fb950;--neg:#f85149;--acc:#58a6ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+     font:14px/1.5 -apple-system,BlinkMacSystemFont,"SF Mono",monospace}
+.wrap{max-width:1200px;margin:0 auto;padding:24px}
+h1{font-size:20px;margin:0 0 2px}
+.sub{color:var(--dim);font-size:12px;margin-bottom:20px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+.card .lbl{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.card .val{font-size:22px;font-weight:600;margin-top:4px}
+.card .note{color:var(--dim);font-size:11px;margin-top:2px}
+h2{font-size:14px;margin:24px 0 8px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+table{width:100%;border-collapse:collapse;background:var(--panel);
+      border:1px solid var(--line);border-radius:8px;overflow:hidden}
+th{text-align:left;padding:8px 10px;font-size:11px;color:var(--dim);
+   text-transform:uppercase;border-bottom:1px solid var(--line);font-weight:500}
+td{padding:9px 10px;border-bottom:1px solid #21262d;font-size:13px}
+tr:last-child td{border-bottom:none}
+.pos{color:var(--pos)} .neg{color:var(--neg)}
+.tick{font-size:10px;color:#6e7681}
+.empty{padding:24px;text-align:center;color:var(--dim);background:var(--panel);
+       border:1px solid var(--line);border-radius:8px}
+</style></head><body><div class="wrap">
+<h1>Kalshi Agent</h1>
+<div class="sub" id="sub">loading…</div>
+<div class="cards" id="cards"></div>
+<h2>Open positions</h2><div id="open"></div>
+<h2>Closed positions</h2><div id="closed"></div>
 </div>
-<div class="panel"><div class="panel-hdr"><h2>Open Positions</h2><span class="pill" id="pos-pill">0</span></div><table><thead><tr><th>Market</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th class="right">P&L</th></tr></thead><tbody id="pos-body"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody></table></div>
-<div class="panel"><div class="panel-hdr"><h2>Closed Trades</h2><span class="pill" id="trades-pill">0</span></div><table><thead><tr><th>Time</th><th>Market</th><th>Side</th><th>Qty</th><th>Cost</th><th>Return</th><th class="right">P&L</th></tr></thead><tbody id="trades-body"><tr><td colspan="7" class="loading">No trades yet</td></tr></tbody></table></div>
 <script>
-function fmt(n){return parseFloat(n||0).toFixed(2)}
-function setPNL(id,v){const el=document.getElementById(id);el.textContent='$'+(v>=0?'+':'')+fmt(v);el.className='metric-value mono '+(v>=0?'pos':'neg')}
-async function update(){try{const r=await fetch('/api/portfolio');const d=await r.json();if(d.error)return;const s=d.stats||{};document.getElementById('balance').textContent='$'+fmt(d.balance);setPNL('realized',s.realized_pnl||0);setPNL('unrealized',s.unrealized_pnl||0);document.getElementById('winrate').textContent=(s.win_rate||0)+'%';document.getElementById('wr-sub').textContent=(s.wins||0)+'W / '+(s.losses||0)+'L';document.getElementById('realized-sub').textContent=(s.wins+s.losses||0)+' settled';const positions=d.positions||[];document.getElementById('pos-pill').textContent=positions.length;const pb=document.getElementById('pos-body');pb.innerHTML=positions.length===0?'<tr><td colspan="6" class="loading">No open positions</td></tr>':positions.map(p=>`<tr><td><div class="ticker">${p.ticker}</div><div style="font-size:0.7rem;color:#64748b">${(p.title||'').substring(0,50)}</div></td><td><strong>${p.side}</strong></td><td>${p.count}</td><td class="mono">$${fmt(p.entry_avg)}</td><td class="mono">$${fmt(p.current_price)}</td><td class="right mono ${p.unrealized_pnl>=0?'pos':'neg'}">$${(p.unrealized_pnl>=0?'+':'')+fmt(p.unrealized_pnl)}</td></tr>`).join('');const trades=d.closed_trades||[];document.getElementById('trades-pill').textContent=trades.length;const tb=document.getElementById('trades-body');tb.innerHTML=trades.length===0?'<tr><td colspan="7" class="loading">No trades yet</td></tr>':trades.map(t=>`<tr><td style="font-size:0.8rem">${t.time}</td><td class="ticker">${t.ticker}</td><td>${t.side}</td><td>${t.count}</td><td class="mono">$${fmt(t.cost)}</td><td class="mono">$${fmt(t.revenue)}</td><td class="right mono ${t.pnl>=0?'pos':'neg'}">$${(t.pnl>=0?'+':'')+fmt(t.pnl)}</td></tr>`).join('')}catch(err){console.error(err)}}
-setInterval(update,15000);update();
+const $=(s)=>document.querySelector(s);
+const money=(v)=>(v<0?"-$":"$")+Math.abs(v).toFixed(2);
+const cls=(v)=>v>0?"pos":(v<0?"neg":"");
+const when=(t)=>t?t.slice(5,16).replace("T"," "):"—";
+
+function card(lbl,val,note,klass){
+  return `<div class="card"><div class="lbl">${lbl}</div>
+    <div class="val ${klass||''}">${val}</div>
+    ${note?`<div class="note">${note}</div>`:""}</div>`;
+}
+
+async function load(){
+  const d = await (await fetch("/api/data")).json();
+  $("#sub").textContent =
+    `since ${d.cutoff} · ${d.n_fills} fills · updated ${d.updated.slice(11,19)} UTC`;
+
+  const wr = d.win_rate===null ? "—" : d.win_rate.toFixed(0)+"%";
+  $("#cards").innerHTML =
+      card("Cash", money(d.cash), "settled, spendable")
+    + card("At risk", money(d.at_risk), `${d.n_open} open positions`)
+    + card("Mark to market", money(d.mark), "open positions at bid")
+    + card("Equity", money(d.equity), "cash + mark")
+    + card("Realized P&L", money(d.realized_pnl), `${d.n_closed} settled`, cls(d.realized_pnl))
+    + card("Unrealized P&L", money(d.unrealized_pnl), "not yours yet", cls(d.unrealized_pnl))
+    + card("Win rate", wr, `${d.wins}W / ${d.losses}L`);
+
+  if(!d.open.length){ $("#open").innerHTML='<div class="empty">none</div>'; }
+  else{
+    let h=`<table><thead><tr><th>Market</th><th>Side</th><th>Qty</th>
+      <th>Entered</th><th>Avg</th><th>Now</th><th>Cost</th><th>Value</th>
+      <th>Unrealized</th></tr></thead><tbody>`;
+    for(const r of d.open){
+      h+=`<tr><td><b>${r.title.slice(0,52)}</b>
+        <div class="tick">${r.series}${r.event?" · "+r.event:""}${r.outcome?" · bet "+r.outcome:""}</div></td>
+        <td class="${r.side==='YES'?'pos':'neg'}">${r.side}</td>
+        <td>${r.qty}</td><td>${when(r.entry_time)}</td>
+        <td>$${r.avg_price.toFixed(2)}</td><td>$${r.now.toFixed(2)}</td>
+        <td>${money(r.cost)}</td><td>${money(r.value)}</td>
+        <td class="${cls(r.unrealized)}">${money(r.unrealized)}
+          <span style="opacity:.6">(${r.unrealized_pct>=0?'+':''}${r.unrealized_pct}%)</span></td></tr>`;
+    }
+    $("#open").innerHTML=h+"</tbody></table>";
+  }
+
+  if(!d.closed.length){
+    $("#closed").innerHTML='<div class="empty">nothing has settled since '+d.cutoff+'</div>';
+  } else {
+    let h=`<table><thead><tr><th>Market</th><th>Side</th><th>Qty</th>
+      <th>Entered</th><th>Settled</th><th>Cost</th><th>Result</th>
+      <th>P&L</th></tr></thead><tbody>`;
+    for(const r of d.closed){
+      h+=`<tr><td><b>${(r.title||r.ticker).slice(0,52)}</b>
+        <div class="tick">${r.series}${r.event?" · "+r.event:""}${r.outcome?" · bet "+r.outcome:""}</div></td>
+        <td class="${r.side==='YES'?'pos':'neg'}">${r.side}</td>
+        <td>${r.qty}</td><td>${when(r.entry_time)}</td><td>${when(r.settled_time)}</td>
+        <td>${money(r.cost)}</td>
+        <td>${r.won?'<span class="pos">WON</span>':'<span class="neg">LOST</span>'}</td>
+        <td class="${cls(r.pnl)}">${money(r.pnl)}</td></tr>`;
+    }
+    $("#closed").innerHTML=h+"</tbody></table>";
+  }
+}
+load(); setInterval(load, 30000);
 </script></body></html>

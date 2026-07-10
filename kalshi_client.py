@@ -218,6 +218,8 @@ class KalshiClient:
                 "ticker": ticker,
                 "yes_bid": _parse_price(m.get("yes_bid_dollars") or m.get("yes_bid")),
                 "yes_ask": _parse_price(m.get("yes_ask_dollars") or m.get("yes_ask")),
+                "no_bid": _parse_price(m.get("no_bid_dollars") or m.get("no_bid")),
+                "no_ask": _parse_price(m.get("no_ask_dollars") or m.get("no_ask")),
                 "volume": _parse_volume(m),
                 "status": m.get("status", "open"),
                 "close_time": m.get("close_time", ""),

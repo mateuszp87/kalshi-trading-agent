@@ -352,7 +352,9 @@ class KalshiTradingAgent:
             self.config.kalshi_private_key_path,
         ) as client:
             bal = await client.get_balance()
-            log.info(f"Balance: ${bal:.2f}")
+            log.info(f"Cash: ${bal:.2f}")
+            session_start_equity = await self._equity(client)
+            log.info(f"Equity: ${session_start_equity:.2f} (cash + open positions at bid)")
 
             # Sync real positions from Kalshi on startup
             await self._sync_positions(client)
@@ -366,8 +368,20 @@ class KalshiTradingAgent:
                 except Exception as e: log.error(f"Cycle error: {e}", exc_info=True)
 
                 self._print_stats()
-                if self.stats.realized_pnl_dollars <= -self.config.max_daily_loss:
-                    log.warning("Daily loss limit — stopping."); break
+                # Circuit breaker off Kalshi's balance, not a local tally.
+                # Note: this includes unrealized moves in open positions, so it
+                # trips on drawdown, not just realized losses. That's stricter
+                # than the old behaviour and intentionally so.
+                try:
+                    eq = await self._equity(client)
+                    drawdown = session_start_equity - eq
+                    log.info(f"  Equity ${eq:.2f} (session {eq - session_start_equity:+.2f})")
+                    if drawdown >= self.config.max_daily_loss:
+                        log.warning(f"Equity drawdown ${drawdown:.2f} >= limit "
+                                    f"${self.config.max_daily_loss:.2f} — stopping.")
+                        break
+                except Exception as e:
+                    log.warning(f"Equity check failed, not tripping breaker: {e}")
 
                 wait = seconds_until_next_scan()
                 nxt = datetime.now(timezone.utc) + timedelta(seconds=wait)
@@ -435,50 +449,50 @@ class KalshiTradingAgent:
         except Exception as e:
             log.warning(f"Position sync failed: {e}")
 
+    async def _equity(self, client) -> float:
+        """Cash + open positions marked at current bid.
+
+        get_balance() alone is cash only — it drops every time we buy,
+        which is not a loss. Equity is what actually falls when we're wrong.
+        """
+        cash = await client.get_balance()
+        mark = 0.0
+        for p in await client.get_positions():
+            pos = float(p.get("position_fp", 0) or 0)
+            if pos == 0:
+                continue
+            t = p.get("ticker", "")
+            try:
+                m = await client.get_market(t)
+                if not m:
+                    raise ValueError("no market data")
+                bid = float(m.get("yes_bid", 0) or 0) if pos > 0 \
+                      else float(m.get("no_bid", 0) or 0)
+                mark += bid * abs(pos)
+            except Exception:
+                # Can't price it — fall back to cost basis rather than zero,
+                # which would fake a catastrophic loss.
+                mark += float(p.get("market_exposure_dollars", 0) or 0)
+        return round(cash + mark, 2)
+
     async def _process_settlements(self, client):
+        """Drop settled tickers from local state so slots free up and the
+        one-position-per-event rule stops blocking re-entry.
+
+        P&L is NOT computed here — the dashboard reconstructs it from
+        fills + settlements. Keeping two sets of books meant one of them
+        was always wrong, and it was this one.
+        """
         try:
-            known = set(self._pnl.get("known_ids", []))
-            new = 0
-            for s in await client.get_settlements():
-                ticker = s.get("ticker", "")
-                sid = ticker + "|" + s.get("settled_time", "")
-                if not ticker or sid in known: continue
-
-                # Kalshi settlement fields (verified 2026-07): `revenue` is
-                # unreliable (often 0 on wins). Compute from counts + result.
-                yes_ct   = float(s.get("yes_count_fp", 0) or 0)
-                no_ct    = float(s.get("no_count_fp", 0) or 0)
-                yes_cost = float(s.get("yes_total_cost_dollars", 0) or 0)
-                no_cost  = float(s.get("no_total_cost_dollars", 0) or 0)
-                fees     = float(s.get("fee_cost", 0) or 0)
-                result   = s.get("market_result", "")
-
-                cost = yes_cost + no_cost
-                # Winning side pays $1.00 per contract
-                if result == "yes":
-                    proceeds = yes_ct
-                elif result == "no":
-                    proceeds = no_ct
-                else:
-                    proceeds = 0.0
-
-                pnl = round(proceeds - cost - fees, 2)
-                won = pnl > 0
-                self._pnl["all_time_pnl"] = round(self._pnl["all_time_pnl"] + pnl, 2)
-                self._pnl["wins" if won else "losses"] += 1
-                self._pnl["trades"].append({"id": sid, "ticker": ticker,
-                    "type": "settlement", "pnl": pnl, "won": won,
-                    "time": s.get("created_time", datetime.now(timezone.utc).isoformat())})
-                known.add(sid)
-                self.stats.realized_pnl_dollars += pnl
-                if won: self.stats.wins += 1
-                else:   self.stats.losses += 1
-                log.info(f"  {'✅ WIN' if won else '❌ LOSS'} SETTLED: {ticker} | ${pnl:+.2f}")
-                if ticker in self.stats.positions: del self.stats.positions[ticker]
-                new += 1
-            self._pnl["known_ids"] = list(known)
-            if new: self._save_pnl(); log.info(f"  {new} settled. All-time: ${self._pnl['all_time_pnl']:+.2f}")
-        except Exception as e: log.warning(f"Settlements: {e}")
+            settled = {s.get("ticker", "") for s in await client.get_settlements()}
+            gone = [t for t in self.stats.positions if t in settled]
+            for t in gone:
+                log.info(f"  SETTLED: {t} — freeing slot")
+                del self.stats.positions[t]
+            if gone:
+                self._save_trade_log()
+        except Exception as e:
+            log.warning(f"Settlements: {e}")
 
     async def _manage_exits(self, client):
         """Auto-exit DISABLED — let positions ride to resolution."""
@@ -901,6 +915,5 @@ class KalshiTradingAgent:
         log.info(f"\n── Stats ───────────────────────────────────────────")
         log.info(f"  Scanned {s.scanned} | Placed {s.placed} | Exited {s.exited} | Skipped {s.skipped}")
         log.info(f"  Positions {s.count}/{100} ({games} games, {s.count-games} other)")
-        log.info(f"  Session P&L ${s.realized_pnl_dollars:+.2f} | All-time ${self._pnl.get('all_time_pnl',0):+.2f}")
-        log.info(f"  Win rate {s.win_rate:.0%} ({s.wins}W/{s.losses}L)")
+        log.info(f"  P&L tracked in dashboard (localhost:8080), not here")
         log.info(f"────────────────────────────────────────────────────\n")
