@@ -147,11 +147,53 @@ async def _fetch_tomorrow(session, parsed):
         return None
 
 
+async def _fetch_ensemble_members(session, parsed):
+    """Pull the GFS 30-member ensemble daily max temp for the target date and
+    return P(threshold is cleared) across members. This is a true probability
+    distribution, not a point forecast. Returns dict or None on failure."""
+    try:
+        url = (f"https://ensemble-api.open-meteo.com/v1/ensemble"
+               f"?latitude={parsed['lat']}&longitude={parsed['lon']}"
+               f"&daily=temperature_2m_max&temperature_unit=fahrenheit"
+               f"&models=gfs_seamless"
+               f"&timezone=America/New_York"
+               f"&start_date={parsed['date_str']}&end_date={parsed['date_str']}")
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=12)) as r:
+            if r.status != 200:
+                return None
+            data = await r.json()
+        daily = data.get("daily", {})
+        vals = []
+        for k, arr in daily.items():
+            if k.startswith("temperature_2m_max_member") and arr and arr[0] is not None:
+                vals.append(float(arr[0]))
+        if len(vals) < 10:
+            return None
+        n = len(vals)
+        threshold = parsed["threshold_f"]
+        direction = parsed["direction"]
+        if direction == "above":
+            hits = sum(1 for v in vals if v > threshold)
+        else:
+            hits = sum(1 for v in vals if v < threshold)
+        return {
+            "prob_correct_direction": round(hits / n, 3),
+            "members": n,
+            "mean": round(statistics.mean(vals), 1),
+            "stdev": round(statistics.pstdev(vals), 2),
+            "min": min(vals), "max": max(vals),
+        }
+    except Exception as e:
+        log.debug(f"Ensemble members failed: {e}")
+        return None
+
+
 async def get_ensemble_forecast(ticker: str) -> Optional[dict]:
     parsed = parse_weather_ticker(ticker)
     if not parsed:
         return None
     
+    ens_dist = None
     async with aiohttp.ClientSession() as session:
         results = await asyncio.gather(
             _fetch_nws(session, parsed),
@@ -159,6 +201,10 @@ async def get_ensemble_forecast(ticker: str) -> Optional[dict]:
             _fetch_tomorrow(session, parsed),
             return_exceptions=True,
         )
+        try:
+            ens_dist = await _fetch_ensemble_members(session, parsed)
+        except Exception:
+            ens_dist = None
     
     sources = ["NWS", "Open-Meteo", "Tomorrow.io"]
     forecasts = []
@@ -195,15 +241,26 @@ async def get_ensemble_forecast(ticker: str) -> Optional[dict]:
     elif margin < 4.0:
         rec, conf = "SKIP", "LOW"
         reason = f"too close to threshold (median {median:.1f}°, threshold {threshold}°, margin {margin:.1f}°)"
-    elif all_yes:
-        rec = "BUY_YES"
-        conf = "HIGH" if margin >= 8.0 else "MEDIUM"
-        reason = f"all {len(forecasts)} sources agree YES (median {median:.1f}°, threshold {threshold}°, margin {margin:.1f}°)"
     else:
-        rec = "BUY_NO"
-        conf = "HIGH" if margin >= 8.0 else "MEDIUM"
-        reason = f"all {len(forecasts)} sources agree NO (median {median:.1f}°, threshold {threshold}°, margin {margin:.1f}°)"
+        proposed = "BUY_YES" if all_yes else "BUY_NO"
+        side_prob = ens_dist["prob_correct_direction"] if ens_dist else None
+        if side_prob is not None and side_prob < 0.70:
+            rec, conf = "SKIP", "LOW"
+            reason = (f"ensemble veto: {ens_dist['members']}-member GFS only "
+                      f"{side_prob:.0%} on {proposed} side "
+                      f"(mean {ens_dist['mean']}°, spread {ens_dist['stdev']}°, need 70%)")
+        else:
+            rec = proposed
+            if side_prob is not None:
+                conf = "HIGH" if (margin >= 8.0 and side_prob >= 0.85) else "MEDIUM"
+                reason = (f"points agree {rec}, {ens_dist['members']}-member GFS {side_prob:.0%} "
+                          f"(median {median:.1f}°, thr {threshold}°, margin {margin:.1f}°)")
+            else:
+                conf = "HIGH" if margin >= 8.0 else "MEDIUM"
+                reason = (f"points agree {rec}, no ensemble "
+                          f"(median {median:.1f}°, thr {threshold}°, margin {margin:.1f}°)")
     
     return {"parsed": parsed, "forecasts": forecasts, "source_results": source_results,
             "median": median, "margin": margin, "agreement": agreement,
+            "ensemble": ens_dist,
             "recommendation": rec, "confidence": conf, "reason": reason}
