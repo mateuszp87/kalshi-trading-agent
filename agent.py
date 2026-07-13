@@ -30,8 +30,8 @@ from fetchers import (
 
 log = logging.getLogger(__name__)
 
-TAKE_PROFIT = 0.12   # tighter — lock gains fast
-STOP_LOSS   = 0.15   # tighter — cut losses fast
+TAKE_PROFIT = 0.20   # let winners run to +20c
+STOP_LOSS   = 0.10   # cut losers fast at -10c
 
 # ── Ordered by profitability (volume × liquidity) ─────────────
 PRIORITY_SERIES = [
@@ -512,7 +512,7 @@ class KalshiTradingAgent:
         except Exception as e:
             log.warning(f"Settlements: {e}")
 
-    async def _manage_exits(self, client):
+    async def _manage_exits_OFF(self, client):
         """Auto-exit DISABLED — let positions ride to resolution."""
         if not self.stats.positions:
             return
@@ -522,7 +522,7 @@ class KalshiTradingAgent:
         log.info(f"[POSITIONS] {len(self.stats.positions)} open, letting them resolve naturally")
         return
 
-    async def _manage_exits_DISABLED(self, client):
+    async def _manage_exits(self, client):
         """Check every position_fp — take profit, stop loss, or evict worst to free slot."""
         if not self.stats.positions: return
         tickers = list(self.stats.positions.keys())
@@ -865,13 +865,43 @@ class KalshiTradingAgent:
             log.info(f"     Sources: {ens['source_results']}")
             log.info(f"     {ens['reason']}  cap=${weather_cap:.0f}")
         
-        bet   = round(40.0 * frac, 2)  # HARDCODED: was self.config.max_bet_size
+        # ---- Kelly sizing -------------------------------------------------
+        # Edge and price define the Kelly-optimal fraction of bankroll:
+        #   f* = edge / odds, where odds = (1-price)/price for a YES-style bet.
+        # We use quarter-Kelly and cap hard. A coin-flip (tiny edge) now gets
+        # a tiny bet; only a real mispricing gets size. This is the fix for
+        # the flat-$40-on-everything problem that produced the -$124 ATP loss.
+        try:
+            bankroll = await client.get_balance()
+        except Exception:
+            bankroll = 100.0
+
+        edge_abs = abs(signal.edge)              # how mispriced, in probability
+        p = max(0.01, min(0.99, price))          # entry price for the side we take
+        odds = (1.0 - p) / p                      # payout per $1 risked
+        kelly_f = (edge_abs / odds) if odds > 0 else 0.0
+        kelly_f = max(0.0, min(kelly_f, 0.25))    # never risk >25% even at full Kelly
+        QUARTER = 0.25
+        bet = round(bankroll * QUARTER * kelly_f, 2)
+
+        # Confidence gate on top: below 0.60 conviction, size down further
+        if signal.confidence < 0.70:
+            bet *= 0.5
+
+        # Absolute guardrails
+        bet = max(0.0, min(bet, 25.0))            # hard ceiling per position
         if weather_cap is not None:
             bet = min(bet, weather_cap)
-        # Thin-signal categories: cap exposure until we have outcome data by category
         if category in ("econ", "politics", "crypto"):
             bet = min(bet, 10.0)
-            log.info(f"  Thin-signal cap ({category}): bet capped at ${bet:.2f}")
+        if category == "sports":
+            bet = min(bet, 8.0)                    # sports is unproven: cap tight
+        if bet < 1.0:
+            log.info(f"  ⊘ SKIP {market.ticker} — Kelly bet ${bet:.2f} below $1 floor "
+                     f"(edge={edge_abs:.3f} conf={signal.confidence:.0%})")
+            return False
+        log.info(f"  SIZING {market.ticker}: edge={edge_abs:.3f} kelly_f={kelly_f:.3f} "
+                 f"bankroll=${bankroll:.0f} → bet ${bet:.2f}")
         price = (market.yes_ask if side == "yes" else market.no_ask)
         
         # WEATHER DISCIPLINE: only high-probability outcomes, cap at $10

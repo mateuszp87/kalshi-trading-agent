@@ -362,20 +362,25 @@ class KalshiClient:
             return None
 
     async def sell_position_fp(self, ticker, side, count, price_dollars):
-        yes_price = round(max(0.01, min(0.99, price_dollars if side == "yes" else 1 - price_dollars)), 2)
-        no_price = round(1 - yes_price, 2)
-        if side == "yes":
-            payload = {
-                "ticker": ticker, "side": "yes", "type": "limit",
-                "count": int(count), "action": "sell",
-                "yes_price": int(round(yes_price * 100)),
-            }
-        else:
-            payload = {
-                "ticker": ticker, "side": "no", "type": "limit",
-                "count": int(count), "action": "sell",
-                "no_price": int(round(no_price * 100)),
-            }
+        """V2 SELL (fixed 2026-07-13). To sell YES you post 'ask'; to sell NO
+        you post 'bid' — the mirror of place_order's buy mapping. Price is the
+        yes-side decimal; count and price are strings; needs client_order_id.
+        """
+        import uuid
+        yes_price = round(max(0.01, min(0.99, price_dollars if side == "yes" else 1 - price_dollars)), 4)
+        # SELL flips the book side relative to BUY:
+        #   sell YES  -> "ask"   (buy YES was "bid")
+        #   sell NO   -> "bid"   (buy NO was "ask")
+        v2_side = "ask" if side == "yes" else "bid"
+        payload = {
+            "ticker": ticker,
+            "client_order_id": str(uuid.uuid4()),
+            "side": v2_side,
+            "count": f"{int(count)}.00",
+            "price": f"{yes_price:.4f}",
+            "time_in_force": "good_till_canceled",
+            "self_trade_prevention_type": "taker_at_cross",
+        }
         try:
             data = await self._post("/portfolio/events/orders", payload)
             o = data if "order_id" in data else data.get("order", {})
