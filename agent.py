@@ -317,6 +317,8 @@ class Position:
     category: str
     timeframe: str
     is_game: bool = False
+    pred_prob: float = 0.5      # model's estimated YES prob at entry
+    pred_conf: float = 0.5      # model's confidence at entry
 
 
 @dataclass
@@ -376,6 +378,24 @@ class KalshiTradingAgent:
 
             # Sync real positions from Kalshi on startup
             await self._sync_positions(client)
+
+            # Calibration scorecard: which categories actually make money.
+            # Logging only — does not change trading behavior.
+            try:
+                from calibration import report as _calib_report
+                _rep = _calib_report()
+                if _rep:
+                    log.info("  ── Calibration scorecard ──")
+                    for _cat, _s in _rep.items():
+                        _flag = "LOSING" if _s["realized_pnl"] < 0 else "ok"
+                        log.info(f"    {_cat:<14} n={_s['n']:<3} "
+                                 f"pnl=${_s['realized_pnl']:+.0f} "
+                                 f"hit={_s['hit_rate']} brier={_s['brier']} [{_flag}]")
+                        if _s["n"] >= 20 and _s["realized_pnl"] < 0:
+                            log.warning(f"    ^ {_cat} has lost money over {_s['n']} bets "
+                                        f"— consider raising its confidence bar.")
+            except Exception as _e:
+                log.warning(f"  calibration scorecard skipped: {_e}")
 
             while True:
                 try:
@@ -494,17 +514,39 @@ class KalshiTradingAgent:
         return round(cash + mark, 2)
 
     async def _process_settlements(self, client):
-        """Drop settled tickers from local state so slots free up and the
-        one-position-per-event rule stops blocking re-entry.
+        """Drop settled tickers from local state so slots free up, AND record
+        calibration data (prediction vs outcome) for each settled position.
 
-        P&L is NOT computed here — the dashboard reconstructs it from
-        fills + settlements. Keeping two sets of books meant one of them
-        was always wrong, and it was this one.
+        Slot P&L is still reconstructed by the dashboard from fills; the
+        number logged here is only used for per-category calibration.
         """
         try:
-            settled = {s.get("ticker", "") for s in await client.get_settlements()}
-            gone = [t for t in self.stats.positions if t in settled]
+            from calibration import record_settled
+            raw = await client.get_settlements()
+            settled_map = {s.get("ticker", ""): s for s in raw}
+            gone = [t for t in self.stats.positions if t in settled_map]
             for t in gone:
+                pos = self.stats.positions.get(t)
+                s = settled_map[t]
+                res = (s.get("market_result") or s.get("result") or "").lower()
+                if pos and res in ("yes", "no") and getattr(pos, "pred_conf", 0.5) > 0.5:
+                    won = (res == pos.side)
+                    outcome = 1 if res == "yes" else 0
+                    if won:
+                        pnl = round((1.0 - pos.entry_price) * pos.contracts, 2)
+                    else:
+                        pnl = round(-pos.entry_price * pos.contracts, 2)
+                    try:
+                        record_settled(
+                            category=pos.category,
+                            source=f"reasoner conf={pos.pred_conf:.2f}",
+                            ref_prob=pos.pred_prob,
+                            market_prob=pos.entry_price,
+                            outcome=outcome,
+                            pnl=pnl,
+                        )
+                    except Exception as ce:
+                        log.warning(f"  calibration log failed for {t}: {ce}")
                 log.info(f"  SETTLED: {t} — freeing slot")
                 del self.stats.positions[t]
             if gone:
@@ -560,8 +602,10 @@ class KalshiTradingAgent:
                 reason = "MARKET CLOSED"
             if reason: to_exit.append((ps, reason))
 
-        # If at limit, evict the worst-performing non-game position_fp to free a slot
-        if self.stats.count >= 100:
+        # Eviction DISABLED — force-selling losers to chase new bets realizes
+        # your worst positions at market. A stop-loss cuts a loser on its own
+        # merits; eviction dumps it just to free a slot. Never do that.
+        if False and self.stats.count >= 100:
             already_exiting = {e[0]["ticker"] for e in to_exit}
             candidates = sorted(
                 [ps for ps in statuses
@@ -934,6 +978,8 @@ class KalshiTradingAgent:
             entry_time=datetime.now(timezone.utc).isoformat(),
             category=category, timeframe=market.timeframe_label,
             is_game=game_flag,
+            pred_prob=getattr(signal, "estimated_prob", signal.confidence),
+            pred_conf=signal.confidence,
         )
         self.stats.placed += 1
         self._save_trade_log()

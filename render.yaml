@@ -3,7 +3,7 @@ services:
     name: kalshi-trading-agent
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python3 main.py --category all
+    startCommand: python3 main.py --category all --max-bet 5 --max-positions 15 --max-daily-loss 25
     envVars:
       - key: KALSHI_EMAIL
         sync: false

@@ -19,7 +19,7 @@ class AgentConfig:
     max_open_positions: int = 50   # lower limit — game trades cycle fast
     buy_threshold: float = 0.72
     sell_threshold: float = 0.28
-    max_daily_loss: float = 100.0
+    max_daily_loss: float = 30.0   # was 100 — never fired; account bled -$222
 
     kalshi_api_key: str = field(default_factory=lambda: os.getenv("KALSHI_API_KEY", ""))
     kalshi_base_url: str = field(default_factory=lambda: os.getenv("KALSHI_BASE_URL", "https://trading-api.kalshi.com/trade-api/v2"))

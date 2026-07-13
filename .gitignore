@@ -6,3 +6,8 @@ kalshi-public.key
 __pycache__/
 *.pyc
 session_*.log
+.env.save
+.env.*
+.DS_Store
+*.bak_edit*
+signal_log.json
