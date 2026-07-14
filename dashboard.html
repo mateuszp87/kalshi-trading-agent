@@ -110,6 +110,28 @@ async function load(){
     $("#closed").innerHTML=h+"</tbody></table>";
   }
 }
+function scorecardTable(rows){
+  if(!rows.length) return "";
+  const ranked = [...rows].sort((a,b)=> b.pnl - a.pnl);
+  let h=`<div class="note" style="margin-bottom:6px"><b>Category Scorecard</b> — ranked by profit</div>`;
+  h+=`<table style="margin-bottom:12px"><thead><tr><th>Category</th><th>Trades</th>
+    <th>Won%</th><th>Claimed%</th><th>Gap</th><th>Net P&L</th><th>Verdict</th></tr></thead><tbody>`;
+  for(const r of ranked){
+    const gap = (r.actual - r.claimed);
+    let v, vcls;
+    if(r.n < 10){ v="too few"; vcls="note"; }
+    else if(r.pnl > 0 && gap >= -3){ v="WINNING"; vcls="pos"; }
+    else if(r.pnl < 0){ v="BLEEDING"; vcls="neg"; }
+    else { v="flat"; vcls="note"; }
+    h+=`<tr><td>${r.key}</td><td>${r.n}</td>
+      <td>${r.actual}%</td><td>${r.claimed}%</td>
+      <td class="${gap>=0?'pos':'neg'}">${gap>=0?'+':''}${gap.toFixed(1)}pp</td>
+      <td class="${cls(r.pnl)}">${money(r.pnl)}</td>
+      <td class="${vcls}">${v}</td></tr>`;
+  }
+  return h+"</tbody></table>";
+}
+
 function calibTable(rows, label){
   if(!rows.length) return "";
   let h=`<table style="margin-bottom:12px"><thead><tr><th>${label}</th><th>Trades</th>
@@ -132,7 +154,8 @@ function renderCalib(d){
     return;
   }
   const c = d.calibration;
-  let h = calibTable(c.by_confidence, "Confidence bucket")
+  let h = scorecardTable(c.by_category)
+        + calibTable(c.by_confidence, "Confidence bucket")
         + calibTable(c.by_category, "Category");
   if(d.n_graded < 20){
     h += `<div class="empty" style="margin-top:4px">${d.n_graded} graded trades —
