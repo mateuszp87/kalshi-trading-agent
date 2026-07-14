@@ -1082,16 +1082,23 @@ class KalshiTradingAgent:
                     rows = json.load(f)
             except Exception:
                 rows = []
+            def _safe_round(v, n=4):
+                # Weather/crypto overrides can leave signal fields as None.
+                # Record what we have rather than losing the whole signal.
+                try:
+                    return round(float(v), n)
+                except (TypeError, ValueError):
+                    return None
             rows.append({
                 "ticker": market.ticker,
                 "title": market.title[:100],
                 "category": category,
                 "side": side,
-                "confidence": round(signal.confidence, 4),
-                "estimated_prob": round(signal.estimated_prob, 4),
-                "kalshi_mid": round(signal.kalshi_mid, 4),
-                "edge": round(signal.edge, 4),
-                "entry_price": round(price, 4),
+                "confidence": _safe_round(getattr(signal, "confidence", None)),
+                "estimated_prob": _safe_round(getattr(signal, "estimated_prob", None)),
+                "kalshi_mid": _safe_round(getattr(signal, "kalshi_mid", None)),
+                "edge": _safe_round(getattr(signal, "edge", None)),
+                "entry_price": _safe_round(price),
                 "contracts": int(count),
                 "cost": round(cost, 2),
                 "entry_time": datetime.now(timezone.utc).isoformat(),
