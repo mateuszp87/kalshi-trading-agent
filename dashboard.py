@@ -227,7 +227,10 @@ async def gather():
 
             side = "YES" if yc > nc else "NO"
             qty = yc if side == "YES" else nc
-            cost = ycost + ncost
+            # Only count the cost of the side actually held. Summing both sides
+            # double-counted round-trip fills and inflated every loss (a $23 bet
+            # showed as $104). This is the P&L accounting fix.
+            cost = ycost if side == "YES" else ncost
             won = (res == "yes" and side == "YES") or (res == "no" and side == "NO")
             proceeds = qty if won else 0.0
             pnl = round(proceeds - cost - fees, 2)
