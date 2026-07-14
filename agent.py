@@ -815,12 +815,19 @@ class KalshiTradingAgent:
                 continue
 
             thresh = edge_threshold(market)
-            if signal.action == "buy_yes" and signal.edge >= thresh:
+            # Fee drag: Kalshi's per-contract fee peaks at mid-price. Subtracting
+            # it before the gate stops "wash trades" where fees eat the raw edge.
+            fee = 0.07 * market.mid_price * (1.0 - market.mid_price)
+            eff_thresh = thresh + fee
+            if signal.action == "buy_yes" and signal.edge >= eff_thresh:
                 side = "yes"
-            elif signal.action == "buy_no" and signal.edge <= -thresh:
+            elif signal.action == "buy_no" and signal.edge <= -eff_thresh:
                 side = "no"
             else:
                 self.stats.skipped += 1
+                if signal.action in ("buy_yes", "buy_no"):
+                    log.info(f"  fee-gate SKIP {market.ticker}: edge={signal.edge:+.3f} "
+                             f"thresh={thresh:.3f} fee={fee:.3f} need={eff_thresh:.3f}")
                 continue
 
             # Guarantee score = confidence × edge magnitude (higher = more guaranteed)
@@ -841,7 +848,16 @@ class KalshiTradingAgent:
         # ═══ PHASE 3: Deliberate — if more than slots available, take most guaranteed ═══
         if len(opportunities) > slots:
             log.info(f"  More opportunities than slots ({len(opportunities)} > {slots}) — ranking by confidence × edge...")
-            opportunities.sort(key=lambda o: o["score"], reverse=True)
+            # Capital-velocity ranking (IRR tiebreaker): among opportunities,
+            # prefer faster-resolving trades so capital recycles and compounds.
+            # This ONLY reorders ranking; it never blocks a trade. Edge quality
+            # still dominates — a strong slow trade still outranks a weak fast one.
+            def _velocity_score(o):
+                hrs = getattr(o["market"], "hours_until_close", None) or 9999.0
+                hrs = max(float(hrs), 1.0)
+                velocity = 1.0 + (24.0 / hrs) * 0.5
+                return o["score"] * velocity
+            opportunities.sort(key=_velocity_score, reverse=True)
             opportunities = opportunities[:slots]
             log.info(f"  → Taking top {len(opportunities)} most guaranteed trades")
 
