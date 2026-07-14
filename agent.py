@@ -15,7 +15,7 @@ Exit rules (checked every scan):
   STOP LOSS   -15c  — cut fast, preserve capital
 """
 
-import asyncio, json, logging, random
+import asyncio, json, logging, random, re
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 from typing import Optional
@@ -149,6 +149,23 @@ def event_root(ticker: str) -> str:
     """
     parts = ticker.rsplit("-", 1)
     return parts[0] if len(parts) > 1 else ticker
+
+
+MAX_PER_CORRELATION_GROUP = 2
+
+
+def correlation_group(ticker: str) -> str:
+    """Map a ticker to a shared risk factor. Positions in the same group move
+    together, so we cap how many we hold. Catches correlation event_root misses:
+    BTC bets on different dates, or multiple same-city temperature bets."""
+    t = ticker.upper()
+    m = re.match(r"^KX(BTC|ETH|SOL|DOGE|XRP)", t)
+    if m:
+        return f"CRYPTO_{m.group(1)}"
+    m = re.match(r"^(KXHIGH[A-Z]+|KXLOW[A-Z]+)", t)
+    if m:
+        return f"WX_{m.group(1)}"
+    return t.split("-")[0]
 
 
 def is_game(title: str) -> bool:
@@ -882,6 +899,13 @@ class KalshiTradingAgent:
             return False
         if market.ticker in self.stats.positions:
             log.info(f"  ⊘ SKIP {market.ticker} — already hold this ticker")
+            return False
+        # Correlation cap: limit positions sharing one underlying risk factor.
+        _cg = correlation_group(market.ticker)
+        _cg_count = sum(1 for tk in self.stats.positions if correlation_group(tk) == _cg)
+        if _cg_count >= MAX_PER_CORRELATION_GROUP:
+            log.info(f"  ⊘ SKIP {market.ticker} — correlation group {_cg} "
+                     f"at cap ({_cg_count}/{MAX_PER_CORRELATION_GROUP})")
             return False
         c = signal.confidence
         edge = abs(signal.edge)
