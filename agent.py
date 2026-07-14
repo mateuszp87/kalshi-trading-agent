@@ -944,7 +944,7 @@ class KalshiTradingAgent:
                 side = ensemble_side
             
             # Cap weather bets: $10 HIGH confidence, $5 MEDIUM
-            weather_cap = 10.0 if ens["confidence"] == "HIGH" else 5.0
+            weather_cap = 15.0 if ens["confidence"] == "HIGH" else 8.0  # caps tuned from settled data
             log.info(f"  🌡 WEATHER ENSEMBLE: {market.ticker} → {rec} ({ens['confidence']})")
             log.info(f"     Sources: {ens['source_results']}")
             log.info(f"     {ens['reason']}  cap=${weather_cap:.0f}")
@@ -983,7 +983,7 @@ class KalshiTradingAgent:
             if crypto_side != side:
                 log.info(f"  ↻ CRYPTO SIDE FLIP {market.ticker}: Claude said {side.upper()}, model says {crypto_side.upper()}")
                 side = crypto_side
-            crypto_cap = 10.0
+            crypto_cap = 15.0
             log.info(f"  ₿ CRYPTO MODEL: {market.ticker} → {crypto_side.upper()} | {note} div={divergence:+.3f}")
 
         # ---- Kelly sizing -------------------------------------------------
@@ -1025,7 +1025,7 @@ class KalshiTradingAgent:
         if category in ("econ", "politics", "crypto"):
             bet = min(bet, 10.0)
         if category == "sports":
-            bet = min(bet, 8.0)                    # sports is unproven: cap tight
+            bet = min(bet, 5.0)                    # sports is loss center: cap tight
         if bet < 1.0:
             log.info(f"  ⊘ SKIP {market.ticker} — Kelly bet ${bet:.2f} below $1 floor "
                      f"(edge={edge_abs:.3f} conf={signal.confidence:.0%})")
@@ -1039,7 +1039,7 @@ class KalshiTradingAgent:
             if _check_price <= 0.15:
                 log.info(f"  ⊘ WEATHER LONGSHOT BLOCKED {market.ticker} @ ${_check_price:.2f} (need >15c for weather)")
                 return False
-            bet = min(bet, 10.0)
+            bet = min(bet, 15.0)
             log.info(f"  Weather discipline: bet capped at ${bet:.2f}")
 
         count = max(1, int(bet / price))
