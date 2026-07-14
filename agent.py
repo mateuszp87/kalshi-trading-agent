@@ -992,6 +992,13 @@ class KalshiTradingAgent:
         # We use quarter-Kelly and cap hard. A coin-flip (tiny edge) now gets
         # a tiny bet; only a real mispricing gets size. This is the fix for
         # the flat-$40-on-everything problem that produced the -$124 ATP loss.
+        # price computed before sizing (fix UnboundLocalError)
+        price = (market.yes_ask if side == "yes" else market.no_ask)
+        if price <= 0:
+            price = market.mid_price if side == "yes" else round(1 - market.mid_price, 4)
+        if price <= 0:
+            log.warning(f"  No valid price for {market.ticker}"); return False
+
         try:
             bankroll = await client.get_balance()
         except Exception:
@@ -1025,8 +1032,6 @@ class KalshiTradingAgent:
             return False
         log.info(f"  SIZING {market.ticker}: edge={edge_abs:.3f} kelly_f={kelly_f:.3f} "
                  f"bankroll=${bankroll:.0f} → bet ${bet:.2f}")
-        price = (market.yes_ask if side == "yes" else market.no_ask)
-        
         # WEATHER DISCIPLINE: only high-probability outcomes, cap at $10
         # Block "10x longshots" — anything priced ≤ 15c on weather is too speculative
         if category == "weather":
@@ -1036,8 +1041,6 @@ class KalshiTradingAgent:
                 return False
             bet = min(bet, 10.0)
             log.info(f"  Weather discipline: bet capped at ${bet:.2f}")
-        if price <= 0: price = market.mid_price if side == "yes" else round(1 - market.mid_price, 4)
-        if price <= 0: log.warning("  No valid price"); return False
 
         count = max(1, int(bet / price))
         cost  = round(price * count, 2)
