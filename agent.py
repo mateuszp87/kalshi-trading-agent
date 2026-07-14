@@ -924,7 +924,44 @@ class KalshiTradingAgent:
             log.info(f"  🌡 WEATHER ENSEMBLE: {market.ticker} → {rec} ({ens['confidence']})")
             log.info(f"     Sources: {ens['source_results']}")
             log.info(f"     {ens['reason']}  cap=${weather_cap:.0f}")
-        
+
+        # ═══ CRYPTO MODEL OVERRIDE ═══
+        # For daily BTC/ETH strike markets, price the digital from live spot +
+        # realized vol instead of trusting Claude's guess. Skip 15-min/hourly
+        # markets entirely (model invalid AND a twice-daily bot can't catch them).
+        crypto_cap = None
+        if category == "crypto":
+            from fetchers.crypto_model import parse_crypto_ticker, evaluate as crypto_eval
+            parsed = parse_crypto_ticker(market.ticker)
+            if not parsed:
+                log.info(f"  ⊘ CRYPTO SKIP {market.ticker} — not a daily strike market (model invalid)")
+                return False
+            try:
+                import aiohttp as _aioh
+                async with _aioh.ClientSession() as _cs:
+                    cres = await crypto_eval(_cs, parsed["asset"], parsed["strike"], parsed["hours_left"])
+            except Exception as e:
+                log.warning(f"  Crypto model failed for {market.ticker}: {e}")
+                return False
+            if not cres:
+                log.info(f"  ⊘ CRYPTO NO-DATA {market.ticker}")
+                return False
+            model_prob, spot, note = cres
+            divergence = model_prob - market.mid_price
+            # Enter only when model diverges from market by more than the gate.
+            cthresh = edge_threshold(market)
+            cfee = 0.07 * market.mid_price * (1.0 - market.mid_price)
+            if abs(divergence) < (cthresh + cfee):
+                log.info(f"  ⊘ CRYPTO SKIP {market.ticker}: {note} | "
+                         f"div={divergence:+.3f} < need={cthresh + cfee:.3f}")
+                return False
+            crypto_side = "yes" if divergence > 0 else "no"
+            if crypto_side != side:
+                log.info(f"  ↻ CRYPTO SIDE FLIP {market.ticker}: Claude said {side.upper()}, model says {crypto_side.upper()}")
+                side = crypto_side
+            crypto_cap = 10.0
+            log.info(f"  ₿ CRYPTO MODEL: {market.ticker} → {crypto_side.upper()} | {note} div={divergence:+.3f}")
+
         # ---- Kelly sizing -------------------------------------------------
         # Edge and price define the Kelly-optimal fraction of bankroll:
         #   f* = edge / odds, where odds = (1-price)/price for a YES-style bet.
@@ -952,6 +989,8 @@ class KalshiTradingAgent:
         bet = max(0.0, min(bet, 25.0))            # hard ceiling per position
         if weather_cap is not None:
             bet = min(bet, weather_cap)
+        if crypto_cap is not None:
+            bet = min(bet, crypto_cap)
         if category in ("econ", "politics", "crypto"):
             bet = min(bet, 10.0)
         if category == "sports":
