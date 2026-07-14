@@ -11,11 +11,12 @@ Realized P&L counts settled markets only. Once a position settles its
 number is final. Win/loss is settled trades only — open positions are
 neither until they resolve.
 """
-import asyncio, datetime, json, re
+import asyncio, datetime, json, re, os
 from collections import defaultdict
 from flask import Flask, jsonify, send_file
 from config import AgentConfig
 from kalshi_client import KalshiClient
+SIGNAL_LOG_PATH = os.environ.get("SIGNAL_LOG_PATH", "signal_log.json")
 
 app = Flask(__name__)
 cfg = AgentConfig()
@@ -89,7 +90,7 @@ async def fetch_price(client, ticker):
 def load_signals():
     """ticker -> what Claude believed when it placed. May be empty."""
     try:
-        with open("signal_log.json") as f:
+        with open(SIGNAL_LOG_PATH) as f:
             rows = json.load(f)
     except Exception:
         return {}
@@ -283,7 +284,7 @@ def api_import():
     from flask import request
     text = request.get_data(as_text=True) or ""
     try:
-        rows = json.load(open("signal_log.json"))
+        rows = json.load(open(SIGNAL_LOG_PATH))
     except Exception:
         rows = []
     seen = {(r.get("ticker"), r.get("entry_time")) for r in rows}
@@ -298,7 +299,7 @@ def api_import():
             continue
         rows.append(r); seen.add(k); added += 1
     rows.sort(key=lambda r: r.get("entry_time", ""))
-    json.dump(rows, open("signal_log.json", "w"), indent=2)
+    json.dump(rows, open(SIGNAL_LOG_PATH, "w"), indent=2)
     return jsonify({"added": added, "total": len(rows)})
 
 
@@ -314,4 +315,4 @@ def index():
 
 if __name__ == "__main__":
     print("dashboard → http://localhost:8080   (cutoff 2026-07-08)")
-    app.run(host="0.0.0.0", port=8080, debug=False)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=False)

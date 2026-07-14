@@ -1,4 +1,5 @@
 services:
+  # The trading bot (background worker) — writes signals to the shared disk
   - type: worker
     name: kalshi-trading-agent
     env: python
@@ -11,3 +12,29 @@ services:
         sync: false
       - key: KALSHI_RSA_KEY
         sync: false
+      - key: SIGNAL_LOG_PATH
+        value: /data/signal_log.json
+    disk:
+      name: kalshi-data
+      mountPath: /data
+      sizeGB: 1
+
+  # The dashboard (web service) — reads signals from the SAME shared disk
+  - type: web
+    name: kalshi-dashboard
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python3 dashboard.py
+    envVars:
+      - key: KALSHI_EMAIL
+        sync: false
+      - key: KALSHI_PASSWORD
+        sync: false
+      - key: KALSHI_RSA_KEY
+        sync: false
+      - key: SIGNAL_LOG_PATH
+        value: /data/signal_log.json
+    disk:
+      name: kalshi-data
+      mountPath: /data
+      sizeGB: 1

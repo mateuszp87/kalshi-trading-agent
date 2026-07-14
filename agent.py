@@ -15,7 +15,7 @@ Exit rules (checked every scan):
   STOP LOSS   -15c  — cut fast, preserve capital
 """
 
-import asyncio, json, logging, random, re
+import asyncio, json, logging, random, re, os
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
 from typing import Optional
@@ -23,6 +23,7 @@ from typing import Optional
 from config import AgentConfig
 from kalshi_client import KalshiClient, KalshiMarket
 from reasoner import ClaudeReasoner, TradeSignal
+SIGNAL_LOG_PATH = os.environ.get("SIGNAL_LOG_PATH", "signal_log.json")
 from fetchers import (
     fetch_sports_signals, fetch_politics_signals, fetch_econ_signals,
     fetch_entertainment_signals, fetch_crypto_signals, fetch_weather_signals,
@@ -1078,7 +1079,7 @@ class KalshiTradingAgent:
         """
         try:
             try:
-                with open("signal_log.json") as f:
+                with open(SIGNAL_LOG_PATH) as f:
                     rows = json.load(f)
             except Exception:
                 rows = []
@@ -1103,7 +1104,7 @@ class KalshiTradingAgent:
                 "cost": round(cost, 2),
                 "entry_time": datetime.now(timezone.utc).isoformat(),
             })
-            with open("signal_log.json", "w") as f:
+            with open(SIGNAL_LOG_PATH, "w") as f:
                 json.dump(rows, f, indent=2)
             # Also emit to stdout. Render's disk is ephemeral; its logs are not.
             # Copy these lines into the dashboard's import box.
