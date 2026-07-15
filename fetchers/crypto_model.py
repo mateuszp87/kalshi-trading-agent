@@ -21,11 +21,14 @@ _MONTHS = {"JAN":1,"FEB":2,"MAR":3,"APR":4,"MAY":5,"JUN":6,
 def parse_crypto_ticker(ticker):
     """Parse ONLY daily dated crypto strike markets: KXBTC-26MAR14-100000.
 
-    Deliberately returns None (skip) for 15-minute (KXBTC15M) and hourly
-    (KXBTCD) markets. Those settle on a 60-second CF Benchmarks index average
-    and reprice tens of cents per minute; a lognormal realized-vol model is NOT
-    valid for them (extrapolating vol to 15 min is inventing a number, not
-    measuring one). We only trade the frequency our model can actually price.
+    Deliberately returns None (skip) for 15-minute (KXBTC15M) and daily
+    (KXBTCD/KXETHD) markets. CONFIRMED via /markets metadata (2026-07): KXBTCD
+    resolves on "the simple average of the sixty seconds of CF Benchmarks' BRTI
+    before 12 AM EDT" — a 60-second index average, NOT a point-in-time spot.
+    A lognormal spot model prices P(spot > strike at an instant), which is a
+    different (higher-variance) variable than a 60s average; using it here would
+    manufacture fake edges and bet real money on them. We only trade the
+    frequency our model can actually price. Do not "fix" this to accept KXBTCD.
     Returns {asset, strike, hours_left} or None."""
     t = ticker.upper().strip()
     if t.startswith(("KXBTC15M", "KXETH15M", "KXBTCD", "KXETHD")):
