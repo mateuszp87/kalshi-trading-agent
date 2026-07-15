@@ -781,7 +781,17 @@ class KalshiTradingAgent:
                 except Exception as e:
                     log.debug(f"Live score fetch failed {market.ticker}: {e}")
 
-            signal = self.reasoner.score_market(market, signals, category)
+            # ── COMMODITY BRACKET MODEL ──────────────────────────────
+            # For commodity strike ladders, price off a single coherent
+            # lognormal (spot + realized vol) instead of asking the LLM per
+            # strike. This eliminates the incoherent all-NO ladder. Model is
+            # LOG-ONLY (probation): the scorecard grades its probabilities on
+            # settlement before any real money rides on it.
+            signal = None
+            if category == "commodities":
+                signal = await self._commodity_bracket_signal(client, market)
+            if signal is None:
+                signal = self.reasoner.score_market(market, signals, category)
             
             # Log every evaluation so we see what's being considered
             ob = signals.get("orderbook", {})
@@ -870,6 +880,50 @@ class KalshiTradingAgent:
 
         log.info("")
         log.info(f"  Scan complete: {placed}/{len(opportunities)} orders filled")
+
+    async def _commodity_bracket_signal(self, client, market):
+        """Price a commodity strike off the shared lognormal curve.
+        Returns a TradeSignal, or None to fall back to the LLM (e.g. no strike
+        in ticker, or spot/vol fetch fails). Spot+vol are cached per-root per
+        scan so a 12-strike ladder hits Yahoo once, not twelve times."""
+        try:
+            from fetchers.commodity_bracket import parse_strike, price_strike
+            from fetchers.commodity_spot import root_from_ticker, fetch_spot_and_vol
+        except Exception:
+            return None
+        strike = parse_strike(market.ticker)
+        root = root_from_ticker(market.ticker)
+        if strike is None or not root:
+            return None
+        hours = market.hours_until_close
+        if hours is None or hours <= 0:
+            return None
+        cache = getattr(self, "_commodity_spot_cache", None)
+        if cache is None:
+            cache = self._commodity_spot_cache = {}
+        if root not in cache:
+            try:
+                cache[root] = await fetch_spot_and_vol(client._session, root)
+            except Exception:
+                cache[root] = None
+        sv = cache.get(root)
+        if not sv or not sv.get("spot") or not sv.get("annual_vol"):
+            return None
+        p_model = price_strike(sv["spot"], strike, hours, sv["annual_vol"])
+        mid = market.mid_price
+        edge = round(p_model - mid, 4)
+        action = "buy_yes" if edge > 0 else "buy_no"
+        # confidence: distance of model prob from a coin flip, floored sensibly
+        conf = round(min(0.95, 0.55 + abs(p_model - 0.5)), 4)
+        note = (f"bracket spot=${sv['spot']:,.2f} K=${strike} {hours:.1f}h "
+                f"vol={sv['annual_vol']:.0%} -> P={p_model:.2%} vs mkt={mid:.2%}")
+        log.info(f"  \u25b8 COMMODITY MODEL {market.ticker}: {note}")
+        return TradeSignal(
+            ticker=market.ticker, title=market.title,
+            action=action, confidence=conf,
+            estimated_prob=round(p_model, 4), kalshi_mid=mid,
+            edge=edge, reasoning=note, factor_scores={},
+        )
 
     async def _place(self, client, market: KalshiMarket, side: str,
                      signal: TradeSignal, category: str):
