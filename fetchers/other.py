@@ -2,6 +2,7 @@
 Entertainment, Crypto, and Weather signal fetchers
 """
 
+import json
 import logging
 import aiohttp
 from datetime import datetime, timedelta, timezone
@@ -156,11 +157,26 @@ async def _fetch_polymarket_generic(session, query: str) -> dict:
             if not data:
                 return {}
             m = data[0]
+            # Polymarket gamma-api returns outcomePrices as a JSON-ENCODED STRING,
+            # e.g. '["0.62", "0.38"]', not a list. Parse it before indexing.
             prices = m.get("outcomePrices", ["0.5"])
+            if isinstance(prices, str):
+                try:
+                    prices = json.loads(prices)
+                except Exception:
+                    prices = ["0.5"]
+            if not prices:
+                prices = ["0.5"]
+            # volume can also arrive as a string
+            vol_raw = m.get("volume", 0)
+            try:
+                vol = float(vol_raw)
+            except (TypeError, ValueError):
+                vol = 0.0
             return {
                 "yes_price": round(float(prices[0]), 3),
                 "question": m.get("question", ""),
-                "volume": float(m.get("volume", 0)),
+                "volume": vol,
             }
     except Exception as e:
         log.warning(f"Polymarket fetch failed: {e}")
