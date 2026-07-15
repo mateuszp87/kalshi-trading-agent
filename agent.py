@@ -36,69 +36,45 @@ STOP_LOSS   = 0.10   # cut losers fast at -10c
 
 # ── Ordered by profitability (volume × liquidity) ─────────────
 PRIORITY_SERIES = [
-    # ═══ SAME-DAY MARKETS ONLY — resolve within 24h ═══
-    # NBA individual games (resolve tonight)
-    "KXNBAGAME",
-    "KXNBA1HWINNER",    # 1st half — resolves in ~1h
-    "KXNBA2HWINNER",    # 2nd half — resolves in ~2h
-    "KXNBA1QWINNER",    # Q1 — resolves in ~30 min
-    "KXNBA2QWINNER",
-    "KXNBA3QWINNER",
-    "KXNBA4QWINNER",
-    "KXNBAPLAYERPTS",   # Player points — same game
-    "KXNBAPLAYOFFPTS",
-    # NHL games (resolve tonight)
-    "KXNHLGAME",
-    # MLB games (resolve today/tonight)
-    "KXMLBGAME",
-    "KXMLBF5",          # First 5 innings — resolves in ~1.5h
-    "KXMLBTOTAL",       # Over/under total runs
-    "KXMLBSPREAD",      # Run line
-    # World Cup 2026
-    "KXWCGAME",
-    "KXWCTOTAL",
-    "KXWCSPREAD",
-    # WNBA (summer season)
-    "KXWNBAGAME",
-    "KXWNBASPREAD",
-    "KXWNBATOTAL",
-    # Soccer matches (resolve in ~2h)
-    "KXEPLGAME",
-    "KXUCLGAME",
-    "KXUELGAME",
-    "KXLALIGAGAME",
-    "KXSERIEAGAME",
-    "KXBUNDESLIGAGAME",
-    "KXLIGUE1GAME",
-    "KXMLSGAME",
-    # Tennis (resolves in ~2-4h)
-    "KXATPMATCH",
-    # Weather (resolves today)
-    "KXHIGHNY",
-    "KXHIGHDEN",
-    "KXHIGHCHI",
-    "KXHIGHLAX",
+    # ═══ YEAR-ROUND, MODEL-PRICEABLE MARKETS — the real edge ═══
+    # Weather (physics ensemble prices these; resolves today)
+    "KXHIGHNY", "KXHIGHDEN", "KXHIGHCHI", "KXHIGHLAX",
+    "KXHIGHTSEA", "KXHIGHTHOU", "KXHIGHTPHX", "KXHIGHTATL",
+    # Crypto daily strikes (digital-pricing model prices these; resolves today)
+    "KXBTCD", "KXETHD",
+    # Commodities daily/weekly (Ornstein-Uhlenbeck target; year-round)
+    "KXWTI", "KXWTIW", "KXBRENTD",
+    "KXGOLDD", "KXGOLDW",
+    "KXSILVERD", "KXSILVERW",
+    "KXCOPPERD", "KXCOPPERW",
+    "KXNATGASD", "KXNATGASW",
+    # Financials / macro catalysts (skew-normal target)
+    "KXFED", "KXCPI", "KXPAYROLLS", "KXUSNFP", "KXGDP",
+    "KXNASDAQ100", "KXINX",
 ]
 
 DAILY_SERIES = [
-    # Crypto — resolves today
-    "KXBTCD", "KXETHD", "KXBTCMAXY", "KXETHMAXY",
-    # Indices
-    "KXNASDAQ100",
+    # Secondary commodities / crypto — lighter tier
+    "KXHOILW", "KXCORNW", "KXWHEATW",
+    "KXGOLDMON", "KXWTIMONTHLY",
 ]
 
 FALLBACK_SERIES = [
-    # Economics
-    "KXCPIYOY", "KXCPI", "KXFED", "KXGDP",
-    # Politics
-    "KXSCOTUSRESIGN",
-    # Golf
-    "KXPGAR1LEAD",
+    # ═══ SPORTS — demoted: unproven, seasonal, -14pp overconfidence gap ═══
+    "KXNBAGAME", "KXNHLGAME", "KXMLBGAME", "KXMLBF5",
+    "KXMLBTOTAL", "KXMLBSPREAD",
+    "KXWNBAGAME", "KXWNBASPREAD", "KXWNBATOTAL",
+    "KXEPLGAME", "KXUCLGAME", "KXUELGAME",
+    "KXLALIGAGAME", "KXSERIEAGAME", "KXBUNDESLIGAGAME",
+    "KXLIGUE1GAME", "KXMLSGAME", "KXATPMATCH",
+    "KXWCGAME", "KXWCTOTAL", "KXWCSPREAD",
 ]
 
 CATEGORY_CONFIG = {
     "sports":   {"fetcher": fetch_sports_signals,   "key_arg": "api_key",          "cfg": "espn_api_key"},
     "crypto":   {"fetcher": fetch_crypto_signals,   "key_arg": "coingecko_api_key","cfg": "coingecko_api_key"},
+    "commodities": {"fetcher": fetch_econ_signals, "key_arg": "fred_api_key", "cfg": "fred_api_key"},
+    "finance":     {"fetcher": fetch_econ_signals, "key_arg": "fred_api_key", "cfg": "fred_api_key"},
     "weather":  {"fetcher": fetch_weather_signals,  "key_arg": "noaa_token",       "cfg": "noaa_token"},
     "econ":     {"fetcher": fetch_econ_signals,     "key_arg": "fred_api_key",     "cfg": "fred_api_key"},
     "politics": {"fetcher": fetch_politics_signals, "key_arg": "newsapi_key",      "cfg": "newsapi_key"},
@@ -763,6 +739,10 @@ class KalshiTradingAgent:
                                       "KXWNBA","KXCFB","KXCBB","KXATP","KXWTA","KXPGA",
                                       "KXUFC","KXBOXING"]):
                 category = "sports"
+            elif any(x in tu for x in ["KXWTI","KXBRENT","KXOIL","KXHOIL","KXGOLD","KXSILVER","KXCOPPER","KXNATGAS","KXCORN","KXWHEAT"]):
+                category = "commodities"
+            elif any(x in tu for x in ["KXNASDAQ","KXINX","KXGOLDPRICE","NASDAQ100"]):
+                category = "finance"
             elif any(x in tu for x in ["KXBTC","KXETH","BTCUSD","ETHUSD"]):
                 category = "crypto"
             elif any(x in tu for x in ["KXHIGH","RAINNY","SNOW"]):
@@ -1027,6 +1007,8 @@ class KalshiTradingAgent:
             bet = min(bet, 10.0)
         if category == "sports":
             bet = min(bet, 5.0)                    # sports is loss center: cap tight
+        if category in ("commodities", "finance"):
+            bet = min(bet, 5.0)                    # no pricing model yet: cap tight
         if bet < 1.0:
             log.info(f"  ⊘ SKIP {market.ticker} — Kelly bet ${bet:.2f} below $1 floor "
                      f"(edge={edge_abs:.3f} conf={signal.confidence:.0%})")
@@ -1048,6 +1030,17 @@ class KalshiTradingAgent:
         game_flag = is_game(market.title)
 
         log.info(f"  Confidence {c:.0%} ({tier}) → ${bet:.2f}")
+
+        # ── PROBATION GATE ──────────────────────────────────────────────
+        # commodities/finance have no pricing model yet and the reasoner
+        # shows a systematic all-NO bias. Log the signal so the scorecard
+        # grades it on settlement, but do NOT risk real money until the
+        # data proves the category. Same discipline weather went through.
+        if category in ("commodities", "finance"):
+            log.info(f"  ⊘ PROBATION (log-only) {market.ticker} — {category} not yet live; signal recorded")
+            self._log_signal(market, side, signal, category, price, count, cost)
+            return False
+
         if self.config.dry_run:
             log.info(f"  [DRY RUN] BUY {side.upper()} {market.ticker} | {count}x@{price:.0%} | ${cost:.2f}")
         else:
