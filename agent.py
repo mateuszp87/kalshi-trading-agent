@@ -1138,8 +1138,10 @@ class KalshiTradingAgent:
         # shows a systematic all-NO bias. Log the signal so the scorecard
         # grades it on settlement, but do NOT risk real money until the
         # data proves the category. Same discipline weather went through.
-        if category in ("commodities", "finance"):
-            log.info(f"  ⊘ PROBATION (log-only) {market.ticker} — {category} not yet live; signal recorded")
+        _is_mlb = "KXMLB" in market.ticker.upper()
+        if category in ("commodities", "finance") or _is_mlb:
+            _why = "MLB benched — worst live category" if _is_mlb else f"{category} not yet live"
+            log.info(f"  ⊘ PROBATION (log-only) {market.ticker} — {_why}; signal recorded")
             self._log_signal(market, side, signal, category, price, count, cost)
             return False
 
