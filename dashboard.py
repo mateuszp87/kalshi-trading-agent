@@ -226,11 +226,19 @@ async def gather():
             fees = float(s.get("fee_cost", 0) or 0)
             res = s.get("market_result", "")
 
-            side = "YES" if yc > nc else "NO"
-            qty = yc if side == "YES" else nc
-            # Only count the cost of the side actually held. Summing both sides
-            # double-counted round-trip fills and inflated every loss (a $23 bet
-            # showed as $104). This is the P&L accounting fix.
+            # Which side did we actually hold? Kalshi echoes the SAME count on
+            # both legs of a single-sided settlement, so yc==nc ties are the
+            # norm, not the exception. Deciding by count sends every tie to the
+            # wrong side, grabbing the wrong cost leg and sometimes flipping
+            # win/loss. Decide by which leg carries real cost basis instead.
+            if ycost > 0 and ncost == 0:
+                side = "YES"
+            elif ncost > 0 and ycost == 0:
+                side = "NO"
+            else:
+                side = "YES" if ycost >= ncost else "NO"
+            qty  = yc if side == "YES" else nc
+            # Only count the cost of the side actually held.
             cost = ycost if side == "YES" else ncost
             won = (res == "yes" and side == "YES") or (res == "no" and side == "NO")
             proceeds = qty if won else 0.0
