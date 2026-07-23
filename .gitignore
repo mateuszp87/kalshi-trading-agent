@@ -11,3 +11,8 @@ session_*.log
 .DS_Store
 *.bak_edit*
 signal_log.json
+*.log
+*.bak_*
+scan_wx.log
+pnl_log.json
+trade_log.json
