@@ -194,7 +194,7 @@ def hours_until_game_from_ticker(ticker: str) -> float:
 
 
 
-SCAN_HOURS_UTC = [15, 0]  # 8am PT and 5pm PT (PDT = UTC-7); 0 is next-day 00:00 UTC
+SCAN_HOURS_UTC = [17, 23]  # 10am PT and 4pm PT (PDT = UTC-7)
 
 
 def seconds_until_next_scan() -> int:
