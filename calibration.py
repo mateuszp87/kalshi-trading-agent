@@ -20,7 +20,11 @@ from __future__ import annotations
 import json, os, statistics
 from collections import defaultdict
 
-STORE = os.path.expanduser("~/kalshi_agent/calibration_log.jsonl")
+# Store next to this module, NOT a hardcoded home path. The old path
+# (~/kalshi_agent) never existed — every record_settled() silently failed,
+# so the calibration report was permanently empty.
+STORE = os.environ.get("CALIBRATION_LOG_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "calibration_log.jsonl")
 
 
 def record_settled(category, source, ref_prob, market_prob, outcome, pnl):
