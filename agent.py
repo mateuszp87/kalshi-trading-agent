@@ -643,6 +643,13 @@ class KalshiTradingAgent:
     async def _scan(self, client):
         # CRITICAL: re-sync positions from Kalshi every scan to prevent stale count drift
         await self._sync_positions_from_kalshi(client)
+
+        # Spot/vol caches are per-SCAN, not per-process. The bot runs for days on
+        # Render; without this reset the first scan's spot is reused forever, so
+        # the model prices against a stale underlying and manufactures huge fake
+        # edge (e.g. Brent priced off $88 spot while the market traded $96).
+        self._commodity_spot_cache = {}
+        self._finance_spot_cache = {}
         
         slots = 100 - self.stats.count
         if slots <= 0:
