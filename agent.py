@@ -1116,8 +1116,14 @@ class KalshiTradingAgent:
             bet = min(bet, 10.0)
         if category == "sports":
             bet = min(bet, 5.0)                    # sports is loss center: cap tight
-        if category in ("commodities", "finance"):
-            bet = min(bet, 5.0)                    # no pricing model yet: cap tight
+        if category == "commodities":
+            # Off probation as of 2026-07-23. The lognormal bracket pricer was
+            # validated against fresh spot (Brent ladder tracked market within
+            # ~3pts on all 9 strikes). Capped at $2: we are BUYING SETTLEMENT
+            # DATA, not chasing profit. Size up only when the scorecard earns it.
+            bet = min(bet, 2.0)
+        if category == "finance":
+            bet = min(bet, 5.0)                    # still in probation
         if bet < 1.0:
             log.info(f"  ⊘ SKIP {market.ticker} — Kelly bet ${bet:.2f} below $1 floor "
                      f"(edge={edge_abs:.3f} conf={signal.confidence:.0%})")
@@ -1146,7 +1152,7 @@ class KalshiTradingAgent:
         # grades it on settlement, but do NOT risk real money until the
         # data proves the category. Same discipline weather went through.
         _is_mlb = "KXMLB" in market.ticker.upper()
-        if category in ("commodities", "finance") or _is_mlb:
+        if category == "finance" or _is_mlb:
             _why = "MLB benched — worst live category" if _is_mlb else f"{category} not yet live"
             log.info(f"  ⊘ PROBATION (log-only) {market.ticker} — {_why}; signal recorded")
             self._log_signal(market, side, signal, category, price, count, cost)
