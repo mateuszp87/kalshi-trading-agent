@@ -46,6 +46,11 @@ def parse_weather_ticker(ticker: str) -> Optional[dict]:
         return None
     
     city_code = m.group(1)
+    # Some high-temp series carry a "T" tier prefix (KXHIGHT + ATL/HOU/SEA/PHX),
+    # which the greedy [A-Z]+ folds into the city code as e.g. "TATL". Strip a
+    # leading T when the full code is unknown but the remainder is a real city.
+    if city_code not in CITY_COORDS and city_code.startswith("T") and city_code[1:] in CITY_COORDS:
+        city_code = city_code[1:]
     if city_code not in CITY_COORDS:
         return None
     
