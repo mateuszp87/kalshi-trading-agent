@@ -61,7 +61,9 @@ async def main():
 
     print(f"  Category      : {config.category.upper()}")
     print(f"  Mode          : {'DRY RUN (no real trades)' if config.dry_run else 'LIVE TRADING'}")
-    print(f"  Scan interval : {config.scan_interval_min//60}–{config.scan_interval_max//60} min (randomized)")
+    from agent import SCAN_HOURS_UTC
+    _slots = ", ".join(f"{h:02d}:00 UTC" for h in sorted(SCAN_HOURS_UTC))
+    print(f"  Scan slots    : {_slots}  (10am / 4pm PT)")
     print(f"  Max bet       : ${config.max_bet_size}")
     print(f"  Max positions : {config.max_open_positions}")
     print(f"  Buy @ ≥       : {int(config.buy_threshold * 100)}%  |  Sell @ ≤ {int(config.sell_threshold * 100)}%")
