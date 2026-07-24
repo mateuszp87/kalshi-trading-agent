@@ -1163,6 +1163,22 @@ class KalshiTradingAgent:
         else:
             result = await client.place_order(market.ticker, side, price, count)
             if not result: log.error("  Order failed"); return False
+            # Orders are good-till-canceled limit orders: an order_id means ACCEPTED,
+            # not FILLED. On thin books they can rest unfilled indefinitely. Recording
+            # an unfilled order as a held position made local state disagree with
+            # Kalshi and wrongly triggered the duplicate-event guard on re-entry.
+            _filled = getattr(result, "filled", 0) or 0
+            _status = getattr(result, "status", "unknown")
+            if _filled <= 0:
+                log.info(f"  ○ RESTING {side.upper()} {market.ticker} | {count}x@{price:.0%} "
+                         f"| status={_status} filled=0 | id={result.order_id} "
+                         f"— not counted as a position until it fills")
+                self._log_signal(market, side, signal, category, price, count, cost)
+                return False
+            if _filled < count:
+                log.info(f"  ◐ PARTIAL {side.upper()} {market.ticker} | {_filled}/{count} filled")
+                count = _filled
+                cost = round(price * count, 2)
             log.info(f"  ✓ BUY {side.upper()} {market.ticker} | {count}x@{price:.0%} | ${cost:.2f} | id={result.order_id}")
 
         self.stats.positions[market.ticker] = Position(
