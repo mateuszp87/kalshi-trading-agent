@@ -20,3 +20,6 @@ trade_log.json
 *.pem
 *.key
 kalshi_private_key*
+!requirements.txt
+!requirements.txt
+!requirements.txt
