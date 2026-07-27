@@ -16,3 +16,7 @@ signal_log.json
 scan_wx.log
 pnl_log.json
 trade_log.json
+
+*.pem
+*.key
+kalshi_private_key*
