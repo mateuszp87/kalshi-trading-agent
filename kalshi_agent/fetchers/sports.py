@@ -1,0 +1,215 @@
+"""
+Sports signal fetcher
+Sources: ESPN API, The Odds API (Vegas lines), public injury feeds
+"""
+
+import logging
+import aiohttp
+from datetime import datetime, timezone
+
+log = logging.getLogger(__name__)
+
+# ESPN public API (no key required for basic data)
+ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports"
+
+# The Odds API — free tier: 500 requests/month
+# https://the-odds-api.com/
+ODDS_BASE = "https://api.the-odds-api.com/v4"
+
+SPORT_MAP = {
+    "nba": ("basketball", "nba"),
+    "nfl": ("football", "nfl"),
+    "mlb": ("baseball", "mlb"),
+    "nhl": ("hockey", "nhl"),
+    "nba playoffs": ("basketball", "nba"),
+}
+
+
+async def fetch_sports_signals(market_title: str, api_key: str = "") -> dict:
+    """
+    Determine sport from market title, then fetch:
+    - Upcoming game lines (The Odds API)
+    - Injury reports (ESPN)
+    - Team recent form (ESPN scoreboard)
+    """
+    signals = {}
+    sport_key = _detect_sport(market_title)
+
+    async with aiohttp.ClientSession() as session:
+        # 1. Vegas odds / probability implied by sportsbooks
+        if api_key:
+            odds = await _fetch_vegas_odds(session, sport_key, api_key)
+            if odds:
+                signals["vegas_implied_prob"] = {
+                    "value": round(odds["implied_prob"], 3),
+                    "description": f"Sportsbook implied probability for relevant team/outcome. Spread: {odds.get('spread', 'N/A')}",
+                    "raw": odds,
+                }
+
+        # 2. ESPN injury report
+        injuries = await _fetch_injuries(session, sport_key)
+        if injuries:
+            signals["injury_report"] = {
+                "value": injuries["impact_score"],  # 0=no impact, 1=major star out
+                "description": f"Key injuries detected: {injuries['summary']}",
+                "raw": injuries["players"],
+            }
+
+        # 3. Recent team form
+        form = await _fetch_team_form(session, sport_key, market_title)
+        if form:
+            signals["team_momentum"] = {
+                "value": round(form["win_pct_last10"], 3),
+                "description": f"Win % over last 10 games: {form['record']}. Avg point diff: {form['avg_margin']:+.1f}",
+                "raw": form,
+            }
+
+        # 4. Polymarket cross-reference (public API, no key needed)
+        poly = await _fetch_polymarket_sports(session, market_title)
+        if poly:
+            signals["polymarket_price"] = {
+                "value": poly["price"],
+                "description": f"Polymarket crowd probability for similar outcome: {poly['market_title'][:60]}",
+                "raw": poly,
+            }
+
+    return signals
+
+
+def _detect_sport(title: str) -> str:
+    title_lower = title.lower()
+    if any(x in title_lower for x in ["nba", "basketball", "lakers", "celtics", "warriors", "nets", "heat", "bulls"]):
+        return "basketball_nba"
+    if any(x in title_lower for x in ["nfl", "football", "super bowl", "quarterback", "touchdown"]):
+        return "americanfootball_nfl"
+    if any(x in title_lower for x in ["mlb", "baseball", "yankees", "dodgers", "pitcher", "home run", "hr"]):
+        return "baseball_mlb"
+    if any(x in title_lower for x in ["nhl", "hockey", "puck", "stanley cup"]):
+        return "icehockey_nhl"
+    return "basketball_nba"  # default
+
+
+async def _fetch_vegas_odds(session: aiohttp.ClientSession, sport_key: str, api_key: str) -> dict:
+    try:
+        url = f"{ODDS_BASE}/sports/{sport_key}/odds"
+        params = {
+            "apiKey": api_key,
+            "regions": "us",
+            "markets": "h2h,spreads",
+            "oddsFormat": "decimal",
+        }
+        async with session.get(url, params=params) as resp:
+            if resp.status != 200:
+                return {}
+            games = await resp.json()
+            if not games:
+                return {}
+            # Take most recent game
+            game = games[0]
+            bookmakers = game.get("bookmakers", [])
+            if not bookmakers:
+                return {}
+            book = bookmakers[0]
+            outcomes = book.get("markets", [{}])[0].get("outcomes", [])
+            if len(outcomes) < 2:
+                return {}
+            # Decimal odds → implied probability
+            home_prob = round(1 / outcomes[0]["price"], 3)
+            away_prob = round(1 / outcomes[1]["price"], 3)
+            return {
+                "home_team": game.get("home_team", ""),
+                "away_team": game.get("away_team", ""),
+                "implied_prob": home_prob,
+                "spread": outcomes[0].get("point", "N/A"),
+            }
+    except Exception as e:
+        log.warning(f"Vegas odds fetch failed: {e}")
+        return {}
+
+
+async def _fetch_injuries(session: aiohttp.ClientSession, sport_key: str) -> dict:
+    try:
+        # ESPN injuries endpoint
+        sport, league = sport_key.split("_") if "_" in sport_key else ("basketball", "nba")
+        url = f"{ESPN_BASE}/{sport}/{league}/injuries"
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status != 200:
+                return {}
+            data = await resp.json()
+            injured = []
+            impact = 0.0
+            for team in data.get("injuries", [])[:5]:
+                for player in team.get("injuries", [])[:3]:
+                    name = player.get("athlete", {}).get("displayName", "Unknown")
+                    status = player.get("status", "")
+                    pos = player.get("athlete", {}).get("position", {}).get("abbreviation", "")
+                    injured.append(f"{name} ({pos}): {status}")
+                    if status in ("Out", "Doubtful") and pos in ("PG", "SG", "SF", "QB", "SP"):
+                        impact = min(impact + 0.3, 1.0)
+            return {
+                "impact_score": round(impact, 2),
+                "summary": "; ".join(injured[:4]) or "No significant injuries",
+                "players": injured[:8],
+            }
+    except Exception as e:
+        log.warning(f"ESPN injuries fetch failed: {e}")
+        return {}
+
+
+async def _fetch_team_form(session: aiohttp.ClientSession, sport_key: str, title: str) -> dict:
+    try:
+        sport, league = sport_key.split("_") if "_" in sport_key else ("basketball", "nba")
+        url = f"{ESPN_BASE}/{sport}/{league}/scoreboard"
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status != 200:
+                return {}
+            data = await resp.json()
+            events = data.get("events", [])
+            if not events:
+                return {}
+            # Simple heuristic: count recent home-team wins
+            wins, total, margins = 0, 0, []
+            for ev in events[:10]:
+                comps = ev.get("competitions", [{}])[0]
+                competitors = comps.get("competitors", [])
+                if len(competitors) < 2:
+                    continue
+                scores = [int(c.get("score", 0) or 0) for c in competitors]
+                if scores[0] > scores[1]:
+                    wins += 1
+                    margins.append(scores[0] - scores[1])
+                else:
+                    margins.append(scores[0] - scores[1])
+                total += 1
+            if total == 0:
+                return {}
+            return {
+                "win_pct_last10": round(wins / total, 3),
+                "record": f"{wins}W-{total-wins}L",
+                "avg_margin": round(sum(margins) / len(margins), 1) if margins else 0,
+            }
+    except Exception as e:
+        log.warning(f"ESPN form fetch failed: {e}")
+        return {}
+
+
+async def _fetch_polymarket_sports(session: aiohttp.ClientSession, title: str) -> dict:
+    try:
+        url = "https://gamma-api.polymarket.com/markets"
+        params = {"search": title[:40], "limit": 3, "active": "true"}
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            if resp.status != 200:
+                return {}
+            data = await resp.json()
+            if not data:
+                return {}
+            market = data[0]
+            price = float(market.get("lastTradePrice", market.get("outcomePrices", ["0.5"])[0]))
+            return {
+                "price": round(price, 3),
+                "market_title": market.get("question", ""),
+                "volume": market.get("volume", 0),
+            }
+    except Exception as e:
+        log.warning(f"Polymarket fetch failed: {e}")
+        return {}
