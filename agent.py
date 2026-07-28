@@ -880,6 +880,7 @@ class KalshiTradingAgent:
 
         # ═══ PHASE 4: Place trades ═══
         placed = 0
+        self._scan_placed_groups = {}   # in-scan correlation tracker, reset each scan
         for opp in opportunities:
             if self.stats.count >= 100:
                 log.info("  Max positions reached — stopping")
@@ -1004,10 +1005,11 @@ class KalshiTradingAgent:
             return False
         # Correlation cap: limit positions sharing one underlying risk factor.
         _cg = correlation_group(market.ticker)
-        _cg_count = sum(1 for tk in self.stats.positions if correlation_group(tk) == _cg)
-        if _cg_count >= MAX_PER_CORRELATION_GROUP:
+        _settled = sum(1 for tk in self.stats.positions if correlation_group(tk) == _cg)
+        _inscan = getattr(self, "_scan_placed_groups", {}).get(_cg, 0)
+        if (_settled + _inscan) >= MAX_PER_CORRELATION_GROUP:
             log.info(f"  ⊘ SKIP {market.ticker} — correlation group {_cg} "
-                     f"at cap ({_cg_count}/{MAX_PER_CORRELATION_GROUP})")
+                     f"at cap ({_settled + _inscan}/{MAX_PER_CORRELATION_GROUP})")
             return False
         c = signal.confidence
         edge = abs(signal.edge)
@@ -1217,6 +1219,10 @@ class KalshiTradingAgent:
             pred_conf=signal.confidence,
         )
         self.stats.placed += 1
+        _cg_placed = correlation_group(market.ticker)
+        if not hasattr(self, "_scan_placed_groups"):
+            self._scan_placed_groups = {}
+        self._scan_placed_groups[_cg_placed] = self._scan_placed_groups.get(_cg_placed, 0) + 1
         self._save_trade_log()
         self._log_signal(market, side, signal, category, price, count, cost)
         return True
