@@ -935,8 +935,11 @@ class KalshiTradingAgent:
                      f"vs mkt={mid:.0%} (gap={edge:+.2f}) \u2014 too large to trust")
             return None
         action = "buy_yes" if edge > 0 else "buy_no"
-        # confidence: distance of model prob from a coin flip, floored sensibly
-        conf = round(min(0.95, 0.55 + abs(p_model - 0.5)), 4)
+        # confidence: conviction on the side we're actually buying (p that the
+        # bet WINS), not raw distance from 0.5. Direction-aware so a strong NO
+        # gets high confidence, not a wrong-side high number feeding Kelly.
+        p_side = p_model if action == "buy_yes" else (1.0 - p_model)
+        conf = round(min(0.95, max(0.55, p_side)), 4)
         note = (f"bracket spot=${sv['spot']:,.2f} K=${strike} {hours:.1f}h "
                 f"vol={sv['annual_vol']:.0%} -> P={p_model:.2%} vs mkt={mid:.2%}")
         log.info(f"  \u25b8 COMMODITY MODEL {market.ticker}: {note}")
@@ -982,7 +985,9 @@ class KalshiTradingAgent:
         mid = market.mid_price
         edge = round(p_model - mid, 4)
         action = "buy_yes" if edge > 0 else "buy_no"
-        conf = round(min(0.95, 0.55 + abs(p_model - 0.5)), 4)
+        # direction-aware confidence: p that the bet wins (see commodity builder)
+        p_side = p_model if action == "buy_yes" else (1.0 - p_model)
+        conf = round(min(0.95, max(0.55, p_side)), 4)
         note = (f"range {int(low)}-{int(high)} spot={sv['spot']:,.2f} {hours:.1f}h "
                 f"vol={sv['annual_vol']:.0%} -> P={p_model:.2%} vs mkt={mid:.2%}")
         log.info(f"  \u25b8 FINANCE MODEL {market.ticker}: {note}")
