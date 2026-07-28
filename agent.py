@@ -921,6 +921,18 @@ class KalshiTradingAgent:
         p_model = price_strike(sv["spot"], strike, hours, sv["annual_vol"])
         mid = market.mid_price
         edge = round(p_model - mid, 4)
+        # ── DIVERGENCE SANITY GATE ──────────────────────────────────────
+        # A spot+vol model that disagrees with the market by a huge margin is
+        # almost always wrong (stale/lagged spot, understated vol, or the market
+        # pricing news the model can't see) — NOT finding real edge. The Brent
+        # ladder that lost ~$22 priced model=91% vs market=20% (71pt gap) and
+        # bet the whole ladder. Refuse any commodity bet whose model/market gap
+        # exceeds the threshold; real commodity edges are single-digit points.
+        MAX_COMMODITY_DIVERGENCE = 0.25
+        if abs(edge) > MAX_COMMODITY_DIVERGENCE:
+            log.info(f"  \u2298 DIVERGENCE SKIP {market.ticker}: model={p_model:.0%} "
+                     f"vs mkt={mid:.0%} (gap={edge:+.2f}) \u2014 too large to trust")
+            return None
         action = "buy_yes" if edge > 0 else "buy_no"
         # confidence: distance of model prob from a coin flip, floored sensibly
         conf = round(min(0.95, 0.55 + abs(p_model - 0.5)), 4)
