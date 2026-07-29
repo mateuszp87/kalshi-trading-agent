@@ -89,7 +89,12 @@ async def _fetch_nws(session, parsed):
             if r.status != 200:
                 return None
             point_data = await r.json()
-        forecast_url = point_data.get("properties", {}).get("forecastHourly")
+        # Use the regular (daily) forecast, not hourly. The daytime period's
+        # temperature IS the forecasted daily HIGH — the same quantity that
+        # Open-Meteo (temperature_2m_max) and Tomorrow.io (temperatureMax)
+        # report. Max-of-hourly systematically understated the true high and
+        # manufactured fake disagreement between sources.
+        forecast_url = point_data.get("properties", {}).get("forecast")
         if not forecast_url:
             return None
         async with session.get(forecast_url, headers={"User-Agent": "kalshi-bot"}, timeout=aiohttp.ClientTimeout(total=10)) as r:
@@ -97,13 +102,13 @@ async def _fetch_nws(session, parsed):
                 return None
             data = await r.json()
         target = parsed["date_str"]
-        max_temp = None
         for period in data.get("properties", {}).get("periods", []):
-            if period.get("startTime", "").startswith(target):
+            # daytime period on the target date carries the daily high
+            if period.get("startTime", "").startswith(target) and period.get("isDaytime"):
                 temp = period.get("temperature")
-                if temp is not None and (max_temp is None or temp > max_temp):
-                    max_temp = temp
-        return max_temp
+                if temp is not None:
+                    return float(temp)
+        return None
     except Exception as e:
         log.debug(f"NWS failed: {e}")
         return None
