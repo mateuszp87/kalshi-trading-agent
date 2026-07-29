@@ -908,6 +908,16 @@ class KalshiTradingAgent:
         hours = market.hours_until_close
         if hours is None or hours <= 0:
             return None
+        # ── MIN TIME-TO-SETTLE GATE ─────────────────────────────────────
+        # On same-day strikes the spot+vol model races live order flow with a
+        # lagged Yahoo daily-candle spot and gets run over — this is what built
+        # the Brent ladder that lost ~$22 on ~14h strikes (model 91% vs mkt 20%).
+        # Only bet commodities where the forecast has real room to play out.
+        MIN_COMMODITY_HOURS = 24.0
+        if hours < MIN_COMMODITY_HOURS:
+            log.info(f"  \u2298 COMMODITY SHORT-DATED SKIP {market.ticker}: "
+                     f"{hours:.1f}h < {MIN_COMMODITY_HOURS:.0f}h — too soon to trust spot+vol")
+            return None
         cache = getattr(self, "_commodity_spot_cache", None)
         if cache is None:
             cache = self._commodity_spot_cache = {}
