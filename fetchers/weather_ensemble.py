@@ -19,20 +19,20 @@ import aiohttp
 log = logging.getLogger(__name__)
 
 CITY_COORDS = {
-    "NY":   (40.7128, -74.0060, "OKX", "New York"),
-    "CHI":  (41.8781, -87.6298, "LOT", "Chicago"),
-    "LAX":  (34.0522, -118.2437, "LOX", "Los Angeles"),
-    "DEN":  (39.7392, -104.9903, "BOU", "Denver"),
-    "MIA":  (25.7617, -80.1918, "MFL", "Miami"),
-    "PHL":  (39.9526, -75.1652, "PHI", "Philadelphia"),
-    "AUS":  (30.2672, -97.7431, "EWX", "Austin"),
-    "BOS":  (42.3601, -71.0589, "BOX", "Boston"),
-    "DC":   (38.9072, -77.0369, "LWX", "Washington DC"),
-    "HOU":  (29.7604, -95.3698, "HGX", "Houston"),
-    "ATL":  (33.7490, -84.3880, "FFC", "Atlanta"),
-    "PHX":  (33.4484, -112.0740, "PSR", "Phoenix"),
-    "SEA":  (47.6062, -122.3321, "SEW", "Seattle"),
-    "SF":   (37.7749, -122.4194, "MTR", "San Francisco"),
+    "NY":   (40.7128, -74.0060, "OKX", "New York",      "America/New_York"),
+    "CHI":  (41.8781, -87.6298, "LOT", "Chicago",       "America/Chicago"),
+    "LAX":  (34.0522, -118.2437, "LOX", "Los Angeles",  "America/Los_Angeles"),
+    "DEN":  (39.7392, -104.9903, "BOU", "Denver",       "America/Denver"),
+    "MIA":  (25.7617, -80.1918, "MFL", "Miami",         "America/New_York"),
+    "PHL":  (39.9526, -75.1652, "PHI", "Philadelphia",  "America/New_York"),
+    "AUS":  (30.2672, -97.7431, "EWX", "Austin",        "America/Chicago"),
+    "BOS":  (42.3601, -71.0589, "BOX", "Boston",        "America/New_York"),
+    "DC":   (38.9072, -77.0369, "LWX", "Washington DC", "America/New_York"),
+    "HOU":  (29.7604, -95.3698, "HGX", "Houston",       "America/Chicago"),
+    "ATL":  (33.7490, -84.3880, "FFC", "Atlanta",       "America/New_York"),
+    "PHX":  (33.4484, -112.0740, "PSR", "Phoenix",      "America/Phoenix"),
+    "SEA":  (47.6062, -122.3321, "SEW", "Seattle",      "America/Los_Angeles"),
+    "SF":   (37.7749, -122.4194, "MTR", "San Francisco","America/Los_Angeles"),
 }
 
 
@@ -72,6 +72,7 @@ def parse_weather_ticker(ticker: str) -> Optional[dict]:
         "city_name": CITY_COORDS[city_code][3],
         "lat": CITY_COORDS[city_code][0],
         "lon": CITY_COORDS[city_code][1],
+        "tz": CITY_COORDS[city_code][4],
         "date": datetime(yy, mon, dd, tzinfo=timezone.utc),
         "date_str": f"{yy}-{mon:02d}-{dd:02d}",
         "direction": direction,
@@ -119,7 +120,7 @@ async def _fetch_open_meteo(session, parsed):
         url = (f"https://api.open-meteo.com/v1/forecast"
                f"?latitude={parsed['lat']}&longitude={parsed['lon']}"
                f"&daily=temperature_2m_max&temperature_unit=fahrenheit"
-               f"&timezone=America/New_York"
+               f"&timezone={parsed['tz']}"
                f"&start_date={parsed['date_str']}&end_date={parsed['date_str']}")
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
             if r.status != 200:
@@ -141,7 +142,8 @@ async def _fetch_tomorrow(session, parsed):
     try:
         url = (f"https://api.tomorrow.io/v4/timelines"
                f"?location={parsed['lat']},{parsed['lon']}"
-               f"&fields=temperatureMax&timesteps=1d&units=imperial&apikey={key}")
+               f"&fields=temperatureMax&timesteps=1d&units=imperial"
+               f"&timezone={parsed['tz']}&apikey={key}")
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
             if r.status != 200:
                 return None
@@ -166,7 +168,7 @@ async def _fetch_ensemble_members(session, parsed):
                f"?latitude={parsed['lat']}&longitude={parsed['lon']}"
                f"&daily=temperature_2m_max&temperature_unit=fahrenheit"
                f"&models=gfs_seamless"
-               f"&timezone=America/New_York"
+               f"&timezone={parsed['tz']}"
                f"&start_date={parsed['date_str']}&end_date={parsed['date_str']}")
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=12)) as r:
             if r.status != 200:
