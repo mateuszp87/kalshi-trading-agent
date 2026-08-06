@@ -1195,8 +1195,13 @@ class KalshiTradingAgent:
         # grades it on settlement, but do NOT risk real money until the
         # data proves the category. Same discipline weather went through.
         _is_mlb = "KXMLB" in market.ticker.upper()
-        if category == "finance" or _is_mlb:
-            _why = "MLB benched — worst live category" if _is_mlb else f"{category} not yet live"
+        if category in ("finance", "commodities") or _is_mlb:
+            if _is_mlb:
+                _why = "MLB benched — worst live category"
+            elif category == "commodities":
+                _why = "commodities benched — no proven directional edge, log-only until scorecard earns it"
+            else:
+                _why = f"{category} not yet live"
             log.info(f"  ⊘ PROBATION (log-only) {market.ticker} — {_why}; signal recorded")
             self._log_signal(market, side, signal, category, price, count, cost)
             return False
