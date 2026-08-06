@@ -64,6 +64,18 @@ async def spot_price(session, asset):
         return None
 
 
+def strike_distance_sigma(spot, strike, hours_left, annual_vol):
+    """How many standard deviations the strike sits from spot over the horizon.
+    |value| large -> strike is deep in a tail, the lognormal has real edge.
+    |value| near 0 -> strike is right at spot, essentially a coin flip.
+    Returns abs distance in vol-units, or 0.0 if inputs are degenerate."""
+    t = max(hours_left, 0.0) / (365.0 * 24.0)
+    sigma = annual_vol * math.sqrt(t)
+    if sigma <= 0 or spot <= 0 or strike <= 0:
+        return 0.0
+    return abs(math.log(spot / strike)) / sigma
+
+
 def prob_above(spot, strike, hours_left, annual_vol):
     """P(price > strike at expiry) under lognormal diffusion."""
     if hours_left <= 0 or spot <= 0:

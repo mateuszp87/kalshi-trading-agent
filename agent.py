@@ -930,6 +930,20 @@ class KalshiTradingAgent:
         if not sv or not sv.get("spot") or not sv.get("annual_vol"):
             return None
         p_model = price_strike(sv["spot"], strike, hours, sv["annual_vol"])
+        # ── NEAR-SPOT FILTER ────────────────────────────────────────────
+        # The lognormal only has real edge in the tails. Strikes near spot are
+        # coin flips where model 55% vs market 52% is noise — exactly where the
+        # ladder-straddle losses happened (silver above $59.25 sat 0.19 sigma
+        # from spot and lost -100%). Only bet strikes far enough out that the
+        # probability is meaningful. Tested: near-spot losers <1.5 sigma skip,
+        # far tails 1.8 sigma+ pass.
+        from fetchers.crypto_model import strike_distance_sigma
+        _dist = strike_distance_sigma(sv["spot"], strike, hours, sv["annual_vol"])
+        MIN_COMMODITY_SIGMA = 1.5
+        if _dist < MIN_COMMODITY_SIGMA:
+            log.info(f"  \u2298 COMMODITY NEAR-SPOT SKIP {market.ticker}: strike "
+                     f"{_dist:.2f} sigma from spot < {MIN_COMMODITY_SIGMA} — too close to call")
+            return None
         mid = market.mid_price
         edge = round(p_model - mid, 4)
         # ── DIVERGENCE SANITY GATE ──────────────────────────────────────
