@@ -53,6 +53,33 @@ def annualized_vol(closes) -> float:
     return daily_sd * math.sqrt(252.0)
 
 
+def ewma_vol(closes, lam: float = 0.94) -> float:
+    """Exponentially-weighted annualized vol. Recent days dominate, so the
+    estimate tracks the CURRENT volatility regime rather than a flat average
+    of the whole window. For short-dated bets this matters: a 2-day bet should
+    reflect how volatile things are now, not three weeks ago. lam=0.94 is the
+    RiskMetrics daily standard."""
+    closes = [c for c in closes if c and c > 0]
+    if len(closes) < 3:
+        return 0.0
+    rets = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))]
+    var = rets[0] ** 2
+    for r in rets[1:]:
+        var = lam * var + (1.0 - lam) * (r ** 2)
+    return math.sqrt(var) * math.sqrt(252.0)
+
+
+def blended_vol(closes) -> float:
+    """50/50 blend of flat and EWMA vol. Captures the recency benefit of EWMA
+    while staying stable enough for an unattended bot — a pure EWMA can
+    overreact to a single recent large move. Returns 0.0 if not enough data."""
+    fv = annualized_vol(closes)
+    ev = ewma_vol(closes)
+    if fv <= 0 or ev <= 0:
+        return fv or ev or 0.0
+    return 0.5 * fv + 0.5 * ev
+
+
 async def fetch_spot_and_vol(session, root: str):
     """Returns {spot, annual_vol, symbol, n_closes} or None on failure."""
     sym = ROOT_TO_YAHOO.get(root)
@@ -75,8 +102,9 @@ async def fetch_spot_and_vol(session, root: str):
             spot = closes[-1]
         if not spot or spot <= 0:
             return None
-        vol = annualized_vol(closes)
+        vol = blended_vol(closes)
         return {"spot": float(spot), "annual_vol": vol,
+                "flat_vol": annualized_vol(closes), "ewma_vol": ewma_vol(closes),
                 "symbol": sym, "n_closes": len(closes)}
     except Exception as e:
         log.warning(f"commodity spot {root}/{sym}: {e}")
